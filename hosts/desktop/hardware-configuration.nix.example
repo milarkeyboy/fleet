@@ -1,0 +1,38 @@
+# Prefer generating this file on the target machine:
+#
+#   sudo nixos-generate-config --root /mnt --show-hardware-config > hosts/desktop/hardware-configuration.nix
+#
+# This example documents the kind of hardware detail that should be reviewed
+# before importing the real hardware-configuration.nix file.
+{ lib, ... }:
+
+{
+  boot.initrd.availableKernelModules = [
+    # "xhci_pci"
+    # "nvme"
+    # "usbhid"
+    # "sd_mod"
+  ];
+  boot.initrd.kernelModules = [ ];
+  boot.kernelModules = [ ];
+  boot.extraModulePackages = [ ];
+
+  fileSystems."/" = {
+    device = "/dev/disk/by-uuid/REPLACE-ME";
+    fsType = "ext4";
+  };
+
+  fileSystems."/boot" = {
+    device = "/dev/disk/by-uuid/REPLACE-ME";
+    fsType = "vfat";
+  };
+
+  swapDevices = [
+    # { device = "/dev/disk/by-uuid/REPLACE-ME"; }
+  ];
+
+  networking.useDHCP = lib.mkDefault true;
+  nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
+  hardware.cpu.amd.updateMicrocode = lib.mkDefault false;
+  hardware.cpu.intel.updateMicrocode = lib.mkDefault false;
+}
