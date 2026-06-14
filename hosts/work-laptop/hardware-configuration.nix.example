@@ -7,6 +7,8 @@
 { lib, ... }:
 
 {
+  # Initrd modules are the drivers needed early in boot to find and mount the
+  # root filesystem. Replace these with the generated list for this machine.
   boot.initrd.availableKernelModules = [
     # "xhci_pci"
     # "nvme"
@@ -17,6 +19,8 @@
   boot.kernelModules = [ ];
   boot.extraModulePackages = [ ];
 
+  # Filesystem entries must match the target disk layout. Replace the UUIDs and
+  # filesystem types with the generated values before importing this file.
   fileSystems."/" = {
     device = "/dev/disk/by-uuid/REPLACE-ME";
     fsType = "ext4";
@@ -27,10 +31,13 @@
     fsType = "vfat";
   };
 
+  # Swap belongs here if this machine has a swap partition or swap file.
   swapDevices = [
     # { device = "/dev/disk/by-uuid/REPLACE-ME"; }
   ];
 
+  # These defaults keep the example generic. Generated hardware config may set
+  # a platform and CPU microcode policy based on the actual machine.
   networking.useDHCP = lib.mkDefault true;
   nixpkgs.hostPlatform = lib.mkDefault "x86_64-linux";
   hardware.cpu.amd.updateMicrocode = lib.mkDefault false;

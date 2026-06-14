@@ -35,10 +35,17 @@ Where possible, the following rules shall apply:
 flake.nix                  Flake inputs and host outputs.
 home/                      Home Manager configuration.
 hosts/                     Per-machine NixOS entry points.
-modules/nixos/base.nix     Shared system defaults.
-modules/nixos/desktop/     Desktop environment modules.
-modules/nixos/roles/       Reusable machine role modules.
+modules/base.nix           Shared system defaults.
+modules/user.nix           Primary user account.
+modules/workstation.nix    Interactive desktop/laptop role.
+modules/server.nix         Server role.
 ```
+
+Package lists should have one clear owner. Put packages in system modules when
+they should be available machine-wide, including root shells and non-Home
+contexts. Put packages in Home Manager only when they are specific to Mitch's
+interactive user environment. If a package appears in both places, document the
+reason next to the duplicate entry.
 
 ## Targets
 

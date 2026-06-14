@@ -1,10 +1,12 @@
 { ... }:
 
 {
+  # Host imports compose the shared fleet defaults with this machine's role.
+  # Add laptop-only modules here when hardware details are known.
   imports = [
-    ../../modules/nixos/base.nix
-    ../../modules/nixos/users.nix
-    ../../modules/nixos/roles/workstation.nix
+    ../../modules/base.nix
+    ../../modules/user.nix
+    ../../modules/workstation.nix
     # Generate this on the target machine before the first real build:
     # ./hardware-configuration.nix
   ];
