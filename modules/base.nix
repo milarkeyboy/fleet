@@ -42,6 +42,7 @@
   environment.systemPackages = with pkgs; [
     git
     neovim
+    codex
   ];
 
   # Enable zsh system-wide so it can be used as an account login shell. User
