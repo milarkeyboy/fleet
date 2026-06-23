@@ -10,7 +10,7 @@ machines, sharing modules where the intended use of those machines overlap.
 Where possible, the following rules shall apply:
 
 - The latest stable version of NixOS shall be used. We may change this to use
-  the unstable channels in future. The current flake target is `nixos-26.05`.
+  the unstable channels in future.
 - The Nix language shall be used for configuring tools, environments, etc.
   where said configuration suits the declarative nature of Nix. For tools that
   use more imperative domain languages for configuration (e.g. Lua for nvim),
@@ -33,17 +33,20 @@ Where possible, the following rules shall apply:
 
 ```text
 flake.nix                  Flake inputs and host outputs.
-home/                      Home Manager configuration.
-hosts/                     Per-machine NixOS entry points.
+desktop.nix                Selection of modules + users for the desktop PC
+laptop.nix                 Selection of modules + users for the laptop
+work-laptop.nix            Selection of modules + users for the work laptop
+server.nix                 Selection of modules + users for the home server
+users/                     Per-user configs, including home manager
+hardware-configurations/   Per-machine hardware configuration, typically autogen
 modules/base.nix           Shared system defaults.
-modules/user.nix           Primary user account.
 modules/workstation.nix    Interactive desktop/laptop role.
 modules/server.nix         Server role.
 ```
 
 Package lists should have one clear owner. Put packages in system modules when
 they should be available machine-wide, including root shells and non-Home
-contexts. Put packages in Home Manager only when they are specific to Mitch's
+contexts. Put packages in Home Manager only when they are specific to a user's
 interactive user environment. If a package appears in both places, document the
 reason next to the duplicate entry.
 
@@ -66,11 +69,11 @@ installer or existing NixOS system. When installing to mounted filesystems under
 `/mnt`, include `--root /mnt`; on an already-installed NixOS system, omit it.
 
 ```sh
-sudo nixos-generate-config --root /mnt --show-hardware-config > hosts/desktop/hardware-configuration.nix
+sudo nixos-generate-config --root /mnt --show-hardware-config > hardware-configurations/desktop.nix
 ```
 
-Then uncomment the matching `./hardware-configuration.nix` import in the host's
-`configuration.nix`.
+Then review the matching file in `hardware-configurations/` before building the
+host.
 
 Review at least the following hardware details before switching:
 
@@ -100,8 +103,8 @@ Choose the target configuration by setting `HOST` to one of `desktop`,
 HOST=desktop
 ```
 
-After that host has a real `hardware-configuration.nix`, build it without
-activating it:
+After that host has a real hardware configuration, build it without activating
+it:
 
 ```sh
 sudo nixos-rebuild build --flake .#$HOST

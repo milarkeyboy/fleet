@@ -15,42 +15,38 @@
   outputs =
     inputs@{ home-manager, nixpkgs, ... }:
     let
-      # Shared defaults for the current fleet. Change these when adding
-      # non-x86 machines or renaming the primary managed user.
+      # Shared default for the current fleet. Change this when adding non-x86
+      # machines.
       system = "x86_64-linux";
-      username = "mitch";
 
-      # Builds one NixOS system from a host folder and the shared Home Manager
-      # wiring. Add host-specific behavior in hosts/<name>/configuration.nix.
+      # Builds one NixOS system from a top-level host selection file. Each host
+      # file chooses its hardware module, users, and shared modules.
       mkHost =
         hostname:
         nixpkgs.lib.nixosSystem {
           inherit system;
           specialArgs = {
-            inherit inputs username;
+            inherit inputs;
           };
           modules = [
-            (./. + "/hosts/${hostname}/configuration.nix")
+            (./. + "/${hostname}.nix")
             home-manager.nixosModules.home-manager
             {
-              # Home Manager owns user-level program configuration. Keep
-              # machine-wide packages and services in modules/*.nix instead.
               home-manager = {
                 useGlobalPkgs = true;
                 useUserPackages = true;
                 backupFileExtension = "backup";
                 extraSpecialArgs = {
-                  inherit inputs username;
+                  inherit inputs;
                 };
-                users.${username} = import (./. + "/home/${username}.nix");
               };
             }
           ];
         };
     in
     {
-      # Public build targets. Add new machines here after creating
-      # hosts/<name>/configuration.nix.
+      # Public build targets. Add new machines here after creating a matching
+      # top-level host file.
       nixosConfigurations = {
         desktop = mkHost "desktop";
         laptop = mkHost "laptop";
