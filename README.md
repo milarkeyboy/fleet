@@ -129,15 +129,11 @@ flake checks may evaluate every `nixosConfigurations` entry.
 ## TODO
 
 - Generate and review real hardware configurations for:
-    - Home PC (`desktop`)
     - Personal laptop (`laptop`)
     - Work laptop (`work-laptop`)
     - Home server (`server`)
 - Consider `nixos-hardware` once exact machine models are known.
-- Add a VM/check target for validating common modules before touching real
-  hardware.
 - Add a secrets mechanism such as `sops-nix` or `agenix`.
-- Add CI or a binary cache once configurations can be evaluated consistently.
 - Add neovim Lua code in a way that keeps it in Lua but is imported by Nix.
 - DAW setup with Reaper and yabridge for home PC
 - Games using Steam for home pc

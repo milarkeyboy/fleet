@@ -37,9 +37,13 @@
     # shells.
     programs.git = {
       enable = true;
-      extraConfig = {
+      settings = {
         init.defaultBranch = "main";
         pull.rebase = false;
+        user = {
+          name = "Mitchell Larkin";
+          email = "mitchlarkin12@gmail.com";
+        };
       };
     };
 

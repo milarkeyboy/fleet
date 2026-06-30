@@ -34,7 +34,6 @@
   # put package selections in the role modules below.
   nixpkgs = {
     config.allowUnfree = true;
-    hostPlatform = lib.mkDefault "x86_64-linux";
   };
 
   # Universal system tools should be useful on every machine, including root
