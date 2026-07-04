@@ -41,6 +41,7 @@ users/                     Per-user configs, including home manager
 hardware-configurations/   Per-machine hardware configuration, typically autogen
 modules/base.nix           Shared system defaults.
 modules/workstation.nix    Interactive desktop/laptop role.
+modules/daw.nix            DAW tools for the home desktop.
 modules/server.nix         Server role.
 ```
 
@@ -135,7 +136,8 @@ flake checks may evaluate every `nixosConfigurations` entry.
 - Consider `nixos-hardware` once exact machine models are known.
 - Add a secrets mechanism such as `sops-nix` or `agenix`.
 - Add neovim Lua code in a way that keeps it in Lua but is imported by Nix.
-- DAW setup with Reaper and yabridge for home PC
+- Manually add and sync Windows VST plugin folders with yabridgectl on the
+  desktop after copying or installing DLLs into the Wine prefix
 - Games using Steam for home pc
 - Transition to sway, configured like Manjaro community edition
 - Add apps for work laptop, e.g. Microsoft teams (PWA?), with working screen
