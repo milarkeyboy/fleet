@@ -6,6 +6,9 @@
   boot.loader.systemd-boot.enable = lib.mkDefault true;
   boot.loader.efi.canTouchEfiVariables = lib.mkDefault true;
 
+  # Enable NTFS for Windows drives.
+  boot.supportedFilesystems = [ "ntfs" ];
+
   # Locale and time defaults are shared across the fleet. Add host overrides
   # only for machines that need different regional settings.
   console.keyMap = lib.mkDefault "us";
