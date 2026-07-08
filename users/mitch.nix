@@ -35,9 +35,7 @@
 
     programs.home-manager.enable = true;
 
-    # Git behavior is user preference, so it belongs in Home Manager even
-    # though git itself is also available system-wide for root and non-Home
-    # shells.
+    # Git
     programs.git = {
       enable = true;
       settings = {
@@ -50,17 +48,13 @@
       };
     };
 
-    # Editor preferences are user-level defaults. Add plugin wiring here later,
-    # while keeping larger Lua configuration in Lua files imported by Nix.
-    programs.neovim = {
-      enable = true;
-      defaultEditor = true;
-      viAlias = true;
-      vimAlias = true;
+    # Neovim
+    xdg.configFile."nvim" = {
+      source = ./mitch/nvim;
+      recursive = true;
     };
 
-    # Home Manager configures the interactive shell experience. The system user
-    # config above separately chooses zsh as the login shell.
+    # Shell
     programs.zsh = {
       enable = true;
       autosuggestion.enable = true;

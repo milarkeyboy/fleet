@@ -6,6 +6,7 @@
     ./modules/base.nix
     ./modules/daw.nix
     ./modules/workstation.nix
+    ./modules/coding.nix
     ./users/mitch.nix
   ];
 

@@ -41,11 +41,13 @@
 
   # Universal system tools should be useful on every machine, including root
   # shells and recovery sessions. Role-specific tools belong elsewhere.
-  environment.systemPackages = with pkgs; [
-    git
-    neovim
-    codex
-  ];
+  programs.git.enable = true;
+  programs.neovim = {
+    enable = true;
+    defaultEditor = true;
+    viAlias = true;
+    vimAlias = true;
+  };
 
   # Enable zsh system-wide so it can be used as an account login shell. User
   # aliases and prompts belong in Home Manager.
