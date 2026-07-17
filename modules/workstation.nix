@@ -19,8 +19,7 @@
   services.blueman.enable = true;
   services.printing.enable = true;
 
-  # PipeWire is the default workstation audio stack. Add JACK, pro-audio, or
-  # interface-specific settings here when they apply across workstations.
+  # PipeWire is the default workstation audio stack.
   security.rtkit.enable = true;
   services.pipewire = {
     enable = true;

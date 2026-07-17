@@ -15,6 +15,9 @@
     shell = pkgs.zsh;
   };
 
+  # Allow the DAW module to configure dotfiles (see modules/daw.nix).
+  fleet.daw.users = [ "mitch" ];
+
   # Home Manager owns Mitch's interactive user environment. Keep machine-wide
   # packages and services in modules/*.nix instead.
   home-manager.users.mitch = {
