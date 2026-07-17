@@ -1,18 +1,6 @@
 { pkgs, ... }:
 
 {
-  # Keep the desktop out of low-power CPU scaling while using it as a DAW.
-  powerManagement.cpuFreqGovernor = "performance";
-
-  # Match musnix's low-risk baseline tuning without importing the full module.
-  boot.kernel.sysctl."vm.swappiness" = 10;
-
-  services.udev.extraRules = ''
-    KERNEL=="rtc0", GROUP="audio"
-    KERNEL=="hpet", GROUP="audio"
-    DEVPATH=="/devices/virtual/misc/cpu_dma_latency", OWNER="root", GROUP="audio", MODE="0660"
-  '';
-
   # DAW tooling is installed system-wide for the home desktop. Windows plugin
   # DLLs and yabridge-generated wrappers remain user-managed state outside this
   # repository.
@@ -25,54 +13,19 @@
     extraConfig.pipewire."92-low-latency" = {
       "context.properties" = {
         "default.clock.rate" = 48000;
-        "default.clock.quantum" = 128;
-        "default.clock.min-quantum" = 128;
-        "default.clock.max-quantum" = 128;
+        "default.clock.quantum" = 256;
+        "default.clock.min-quantum" = 256;
+        "default.clock.max-quantum" = 256;
       };
     };
   };
 
-  # JACK clients need realtime scheduling and enough locked memory to run at
-  # low latency without failing plugin loads or falling back to non-RT threads.
-  security.pam.loginLimits = [
-    {
-      domain = "@audio";
-      type = "-";
-      item = "rtprio";
-      value = "99";
-    }
-    {
-      domain = "@audio";
-      type = "-";
-      item = "memlock";
-      value = "unlimited";
-    }
-    {
-      domain = "@audio";
-      type = "-";
-      item = "nice";
-      value = "-11";
-    }
-    {
-      domain = "@audio";
-      type = "soft";
-      item = "nofile";
-      value = "1048576";
-    }
-    {
-      domain = "@audio";
-      type = "hard";
-      item = "nofile";
-      value = "1048576";
-    }
-  ];
-
-  systemd.user.extraConfig = ''
-    DefaultLimitRTPRIO=99
-    DefaultLimitMEMLOCK=infinity
-    DefaultLimitNOFILE=1048576
-    DefaultLimitNICE=-11
-  '';
+  musnix = {
+    enable = true;
+    rtcqs.enable = true;
+    kernel.realtime = true;
+    rtirq.enable = true;
+  };
 
   environment.systemPackages = with pkgs; [
     alsa-utils
