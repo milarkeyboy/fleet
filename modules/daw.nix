@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  inputs,
   ...
 }:
 
@@ -21,6 +22,8 @@
 
 let
   cfg = config.fleet.daw;
+  system = pkgs.stdenv.hostPlatform.system;
+  yabridgePkgs = inputs.yabridge-flake.packages.${system};
 
   # Note: Reaper shall be configured to use ALSA directly, not through
   # piprewire or jack. Doing this has proven to give the lowest latency
@@ -88,6 +91,11 @@ in
       };
     };
 
+    # This has shown to yield much better performance when running the plugins
+    # under Wine. Without it, the DAW would momentarily lock-up during playback
+    # or recording when I had a few Helix Native instances running.
+    boot.kernelModules = [ "ntsync" ];
+
     environment.systemPackages = with pkgs; [
       # DAW
       alsa-utils
@@ -95,10 +103,8 @@ in
       reaper
 
       # Bridging Windows plugins
-      wineWow64Packages.stagingFull
-      winetricks
-      yabridge
-      yabridgectl
+      yabridgePkgs.yabridge
+      yabridgePkgs.yabridgectl
     ];
   };
 }

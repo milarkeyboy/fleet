@@ -12,6 +12,13 @@
     };
 
     musnix.url = "github:musnix/musnix";
+
+    # Use a community flake for yabridge until the Nix package has a more
+    # recent build that uses Wine 11+. This allows me to use NTSYNC as a
+    # performance bonus:
+    # - https://github.com/robbert-vdh/yabridge#performance-tuning
+    # - https://github.com/robbert-vdh/yabridge/issues/469
+    yabridge-flake.url = "github:noblepayne/yabridge-flake";
   };
 
   outputs =
@@ -43,7 +50,7 @@
                 };
               };
             }
-	    inputs.musnix.nixosModules.musnix
+            inputs.musnix.nixosModules.musnix
           ];
         };
     in

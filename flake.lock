@@ -71,11 +71,46 @@
         "type": "github"
       }
     },
+    "nixpkgs_3": {
+      "locked": {
+        "lastModified": 1783148766,
+        "narHash": "sha256-uslt2pqShTIXDdAHRHv2QkYLsVdY8Oqwz0EA48/RSM8=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "a50de1b7d8a586adc18d2395c19de7d6058e6030",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-26.05",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "home-manager": "home-manager",
         "musnix": "musnix",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs_2",
+        "yabridge-flake": "yabridge-flake"
+      }
+    },
+    "yabridge-flake": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_3"
+      },
+      "locked": {
+        "lastModified": 1783396943,
+        "narHash": "sha256-NiFZvGuJbFLpDpV+SxaNUhUClHwT8egTCaJAM47x7CI=",
+        "owner": "noblepayne",
+        "repo": "yabridge-flake",
+        "rev": "872d173dd9014436ebcf0d162e7160c7783d8522",
+        "type": "github"
+      },
+      "original": {
+        "owner": "noblepayne",
+        "repo": "yabridge-flake",
+        "type": "github"
       }
     }
   },
