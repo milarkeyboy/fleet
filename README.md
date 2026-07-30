@@ -33,79 +33,21 @@ Where possible, the following rules shall apply:
 
 ```text
 flake.nix                  Flake inputs and host outputs.
-desktop.nix                Selection of modules + users for the desktop PC
-laptop.nix                 Selection of modules + users for the laptop
-work-laptop.nix            Selection of modules + users for the work laptop
-server.nix                 Selection of modules + users for the home server
-users/                     Per-user configs, including home manager
-hardware-configurations/   Per-machine hardware configuration, typically autogen
+*.nix                      Per-machine top-level selection of modules.
+users/                     Per-user configs, including home manager.
+hardware-configurations/   Per-machine hardware configuration, typically autogen.
 modules/base.nix           Shared system defaults.
-modules/workstation.nix    Interactive desktop/laptop role.
-modules/daw.nix            DAW tools for the home desktop.
-modules/server.nix         Server role.
+moduels/*.nix              Singular functions or categories of functions.
 ```
 
-Package lists should have one clear owner. Put packages in system modules when
-they should be available machine-wide, including root shells and non-Home
-contexts. Put packages in Home Manager only when they are specific to a user's
-interactive user environment. If a package appears in both places, document the
-reason next to the duplicate entry.
-
 ## Targets
-
-- `desktop`: home PC, currently KDE Plasma workstation baseline.
-- `laptop`: personal laptop, currently KDE Plasma workstation baseline.
-- `work-laptop`: work laptop, currently KDE Plasma workstation baseline.
-- `server`: home server baseline with SSH enabled and no desktop role.
 
 All targets currently assume `x86_64-linux`. That should be revisited if any
 machine turns out to be ARM or otherwise unusual.
 
-## Bootstrapping a Host
-
-This repository was started on a machine that is not currently running NixOS or
-Nix, so the first pass is source structure only. Before building any real host,
-generate and review that machine's hardware configuration from a NixOS
-installer or existing NixOS system. When installing to mounted filesystems under
-`/mnt`, include `--root /mnt`; on an already-installed NixOS system, omit it.
-
-```sh
-sudo nixos-generate-config --root /mnt --show-hardware-config > hardware-configurations/desktop.nix
-```
-
-Then review the matching file in `hardware-configurations/` before building the
-host.
-
-Review at least the following hardware details before switching:
-
-- Boot mode and bootloader choice: UEFI/systemd-boot vs BIOS/GRUB.
-- Disk layout, filesystem types, encrypted volumes, swap, and UUIDs.
-- CPU vendor and microcode setting.
-- GPU vendor and driver requirements.
-- Wi-Fi, Bluetooth, audio, camera, and laptop power-management hardware.
-- Server storage topology, network interface names, and static addressing.
-
-User passwords, SSH keys, service credentials, API keys, work VPN details, and
-other secrets must not be committed. Set initial passwords during installation
-or add an external secrets mechanism later.
-
 ## Build, Test, and Switch
 
-Once Nix is available, create the lock file:
-
-```sh
-nix flake lock
-```
-
-Choose the target configuration by setting `HOST` to one of `desktop`,
-`laptop`, `work-laptop`, or `server`:
-
-```sh
-HOST=desktop
-```
-
-After that host has a real hardware configuration, build it without activating
-it:
+Where `HOST` is the target we're building of, build it without activating it:
 
 ```sh
 sudo nixos-rebuild build --flake .#$HOST
@@ -123,22 +65,16 @@ To switch to the configuration and make it the default boot entry:
 sudo nixos-rebuild switch --flake .#$HOST
 ```
 
-Use `switch` only after the build and hardware review look correct. Run
-`nix flake check` once all declared hosts have real hardware imports, because
-flake checks may evaluate every `nixosConfigurations` entry.
-
 ## TODO
 
 - Generate and review real hardware configurations for:
     - Personal laptop (`laptop`)
     - Work laptop (`work-laptop`)
     - Home server (`server`)
-- Consider `nixos-hardware` once exact machine models are known.
-- Add a secrets mechanism such as `sops-nix` or `agenix`.
 - Add neovim Lua code in a way that keeps it in Lua but is imported by Nix.
-- Manually add and sync Windows VST plugin folders with yabridgectl on the
-  desktop after copying or installing DLLs into the Wine prefix
 - Games using Steam for home pc
+- Fix garbage collecting old generations
+- Fix shutdown on desktop: always reboots
 - Transition to sway, configured like Manjaro community edition
 - Add apps for work laptop, e.g. Microsoft teams (PWA?), with working screen
   share

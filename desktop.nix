@@ -12,6 +12,5 @@
 
   networking.hostName = "desktop";
 
-  # TODO: confirm GPU vendor/driver, audio interface/MIDI needs, Steam, and
-  # Sunshine/Moonlight roles for this host.
+  # TODO: confirm GPU vendor/driver.
 }

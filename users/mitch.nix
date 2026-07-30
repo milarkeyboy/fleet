@@ -1,8 +1,6 @@
 { pkgs, ... }:
 
 {
-  # System account capabilities belong with the user so host files can choose
-  # their user set directly.
   users.users.mitch = {
     isNormalUser = true;
     description = "Mitch";
@@ -18,16 +16,11 @@
   # Allow the DAW module to configure dotfiles (see modules/daw.nix).
   fleet.daw.users = [ "mitch" ];
 
-  # Home Manager owns Mitch's interactive user environment. Keep machine-wide
-  # packages and services in modules/*.nix instead.
   home-manager.users.mitch = {
     home.username = "mitch";
     home.homeDirectory = "/home/mitch";
     home.stateVersion = "26.05";
 
-    # User-scoped packages belong here when they support Mitch's interactive
-    # shell rather than the whole machine. Shared tools such as ripgrep, fd,
-    # and jq live in the workstation module instead.
     home.packages = with pkgs; [
       eza
       fzf

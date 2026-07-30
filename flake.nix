@@ -1,8 +1,6 @@
 {
   description = "NixOS and Home Manager configurations for personal machines";
 
-  # Inputs pin the external projects this repository is built from. Update
-  # these when moving to a newer stable NixOS release or adding another flake.
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
@@ -11,6 +9,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # Convenience flake that sets up all the real-time kernel stuff, and
+    # provides nice utilities for getting a DAW up and running.
     musnix.url = "github:musnix/musnix";
 
     # Use a community flake for yabridge until the Nix package has a more
@@ -55,8 +55,8 @@
         };
     in
     {
-      # Public build targets. Add new machines here after creating a matching
-      # top-level host file.
+      # Each machine has its own configuration for targeting on the
+      # command-line.
       nixosConfigurations = {
         desktop = mkHost "desktop";
         laptop = mkHost "laptop";
@@ -64,7 +64,6 @@
         server = mkHost "server";
       };
 
-      # Formatter exposed for future `nix fmt` use once Nix is installed.
       formatter.${system} = nixpkgs.legacyPackages.${system}.nixfmt-rfc-style;
     };
 }

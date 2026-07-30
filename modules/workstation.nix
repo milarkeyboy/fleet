@@ -1,20 +1,11 @@
 { pkgs, ... }:
 
 {
-  # Workstations currently use KDE Plasma. Replace this block when changing the
-  # chosen desktop environment; split it out only if multiple desktops are real.
-  services.xserver = {
-    enable = true;
-    xkb = {
-      layout = "au";
-      variant = "";
-    };
-  };
+  # Desktop environment.
   services.displayManager.sddm.enable = true;
   services.desktopManager.plasma6.enable = true;
 
-  # Interactive machines should support local peripherals. Add workstation-wide
-  # device services here rather than duplicating them per host.
+  # Devices and peripherals.
   hardware.bluetooth.enable = true;
   services.blueman.enable = true;
   services.printing.enable = true;
@@ -28,19 +19,25 @@
     pulse.enable = true;
   };
 
-  # SSH agent support is useful for interactive development machines. Move or
-  # override this if a workstation should not keep an agent.
-  programs.ssh.startAgent = true;
+  # Enable SSH agent
+  programs.ssh = {
+    startAgent = true;
+    # Add a key to ssh-agent after its passphrase is entered successfully.
+    extraConfig = ''
+      AddKeysToAgent yes
+    '';
+  };
 
   # Workstation packages are available to every user on interactive machines.
-  # Keep this list audited; use Home Manager only for Mitch-specific tools.
   environment.systemPackages = with pkgs; [
+    # Apps
+    brave
+
+    # Command line utilities
     bat
     btop
     fd
     file
-    firefox
-    gh
     jq
     pciutils
     ripgrep
