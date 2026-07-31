@@ -32,6 +32,16 @@
     config.allowUnfree = true;
   };
 
+  # Nerdfont for TUI goodness.
+  fonts = {
+    packages = with pkgs; [
+      nerd-fonts.jetbrains-mono
+    ];
+    fontconfig.defaultFonts.monospace = [
+      "JetBrainsMono Nerd Font Mono"
+    ];
+  };
+
   # Universal system tools should be useful on every machine.
   programs.git.enable = true;
   programs.neovim = {
