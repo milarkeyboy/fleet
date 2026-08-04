@@ -73,7 +73,6 @@ sudo nixos-rebuild switch --flake .#$HOST
     - Home server (`server`)
 - Fix the vim pack lockfile being read-only in the Nix store
 - Get more recent builds of pi coding agent than what's in Nix packages.
-- Games using Steam for home pc
 - Fix garbage collecting old generations
 - Fix shutdown on desktop: always reboots
 - Transition to sway, configured like Manjaro community edition

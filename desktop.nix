@@ -3,10 +3,13 @@
 {
   imports = [
     ./hardware-configurations/desktop.nix
+
     ./modules/base.nix
     ./modules/daw.nix
     ./modules/workstation.nix
     ./modules/coding.nix
+    ./modules/gaming.nix
+
     ./users/mitch.nix
   ];
 
@@ -17,7 +20,8 @@
   # turn on the NVIDIA driver; it's required for both X11 and Wayland.
   services.xserver.videoDrivers = [ "nvidia" ];
   hardware.nvidia = {
-    # The GeForce GTX 1060 uses the driver branch supporting Pascal GPUs.
+    # The GeForce GTX 1060 uses the driver branch supporting Pascal GPUs:
+    # https://nvidia.custhelp.com/app/answers/detail/a_id/3142/~/support-timeframes-for-unix-legacy-gpu-releases
     branch = "legacy_580";
     # Proprietary.
     open = false;
