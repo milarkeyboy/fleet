@@ -71,12 +71,14 @@ sudo nixos-rebuild switch --flake .#$HOST
     - Personal laptop (`laptop`)
     - Work laptop (`work-laptop`)
     - Home server (`server`)
-- Add neovim Lua code in a way that keeps it in Lua but is imported by Nix.
+- Fix the vim pack lockfile being read-only in the Nix store
+- Get more recent builds of pi coding agent than what's in Nix packages.
 - Games using Steam for home pc
 - Fix garbage collecting old generations
 - Fix shutdown on desktop: always reboots
 - Transition to sway, configured like Manjaro community edition
 - Add apps for work laptop, e.g. Microsoft teams (PWA?), with working screen
   share
-- Some sort of network file storage for home server
 - Game streaming from home pc to home server (e.g. sunshine/moonlight)
+- Remove dependence on the yabridge flake, build with 32-bit bridge suport
+  for older plugins.

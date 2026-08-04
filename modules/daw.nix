@@ -24,6 +24,7 @@ let
   cfg = config.fleet.daw;
   system = pkgs.stdenv.hostPlatform.system;
   yabridgePkgs = inputs.yabridge-flake.packages.${system};
+  yabridgeWine = inputs.yabridge-flake.inputs.nixpkgs.legacyPackages.${system}.wineWow64Packages.staging;
 
   # Note: Reaper shall be configured to use ALSA directly, not through
   # piprewire or jack. Doing this has proven to give the lowest latency
@@ -105,6 +106,7 @@ in
       # Bridging Windows plugins
       yabridgePkgs.yabridge
       yabridgePkgs.yabridgectl
+      yabridgeWine
     ];
   };
 }
