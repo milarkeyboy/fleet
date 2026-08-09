@@ -3,6 +3,9 @@
 Repository containing configurations for the machines and working environments
 that I use.
 
+Must be cloned directly in the home directory (for out-of-store symlinks to
+work) i.e. `~/fleet`.
+
 ## Design
 
 This repository will support building NixOS configurations for multiple
