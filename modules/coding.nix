@@ -13,5 +13,8 @@ in
     nixd
     typescript-language-server
     rust-analyzer
+
+    # Other editor tools
+    tree-sitter
   ];
 }
