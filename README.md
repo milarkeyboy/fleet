@@ -74,7 +74,6 @@ sudo nixos-rebuild switch --flake .#$HOST
     - Personal laptop (`laptop`)
     - Work laptop (`work-laptop`)
     - Home server (`server`)
-- Fix the vim pack lockfile being read-only in the Nix store
 - Get more recent builds of pi coding agent than what's in Nix packages.
 - Fix garbage collecting old generations
 - Fix shutdown on desktop: always reboots
