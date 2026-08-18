@@ -1,9 +1,12 @@
-{ lib, pkgs, ... }:
+{ inputs, pkgs, ... }:
 
+let
+  unstablePkgs = inputs.nixpkgs-unstable.legacyPackages.${pkgs.stdenv.hostPlatform.system};
+in
 {
   environment.systemPackages = with pkgs; [
     # Agents
-    pi-coding-agent
+    unstablePkgs.pi-coding-agent
 
     # LSPs
     clang-tools
