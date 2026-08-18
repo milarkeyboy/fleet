@@ -1,8 +1,20 @@
-{ lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
+let
+  # Limit the number of NixOS generations to avoid bloating disk space.
+  generationLimit = 10;
+in
 {
   # Boot defaults assume UEFI and systemd-boot.
-  boot.loader.systemd-boot.enable = lib.mkDefault true;
+  boot.loader.systemd-boot = {
+    enable = lib.mkDefault true;
+    configurationLimit = generationLimit;
+  };
   boot.loader.efi.canTouchEfiVariables = lib.mkDefault true;
 
   # Enable NTFS for Windows drives.
@@ -22,15 +34,21 @@
       "nix-command"
       "flakes"
     ];
-    gc = {
-      automatic = true;
-      dates = "weekly";
-      options = "--delete-older-than 14d";
-    };
   };
   nixpkgs = {
     config.allowUnfree = true;
   };
+
+  # Keep the latest ten system generations and collect unreachable store paths
+  # whenever a configuration is switched.
+  system.activationScripts.pruneOldGenerations.text = ''
+    if [ "$NIXOS_ACTION" = switch ]; then
+      ${config.nix.package}/bin/nix-env \
+        --profile /nix/var/nix/profiles/system \
+        --delete-generations +${toString generationLimit}
+      ${config.nix.package}/bin/nix-store --gc
+    fi
+  '';
 
   # Nerdfont for TUI goodness.
   fonts = {

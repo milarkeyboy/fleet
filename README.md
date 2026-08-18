@@ -74,7 +74,6 @@ sudo nixos-rebuild switch --flake .#$HOST
     - Personal laptop (`laptop`)
     - Work laptop (`work-laptop`)
     - Home server (`server`)
-- Fix garbage collecting old generations
 - Fix shutdown on desktop: always reboots
 - Transition to sway, configured like Manjaro community edition
 - Add apps for work laptop, e.g. Microsoft teams (PWA?), with working screen
