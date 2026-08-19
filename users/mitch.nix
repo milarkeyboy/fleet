@@ -48,12 +48,35 @@
     # Shell
     programs.zsh = {
       enable = true;
+
+      # OMZ has nice defaults, and autocomplete plugins are helpful. Default
+      # p10k behaviour used vim and other stuff, didn't like it.
+      oh-my-zsh = {
+        enable = true;
+        plugins = [
+          "git"
+        ];
+      };
+
+      # Use p10k for theme, since the git prompt is real nice.
+      plugins = [
+        {
+          name = "powerlevel10k";
+          src = pkgs.zsh-powerlevel10k;
+          file = "share/zsh-powerlevel10k/powerlevel10k.zsh-theme";
+        }
+      ];
+      initContent = ''
+        source ${./mitch/p10k.zsh}
+      '';
+
       autosuggestion.enable = true;
       syntaxHighlighting.enable = true;
       shellAliases = {
         ll = "ls -lah";
         ls = "eza";
       };
+
     };
   };
 }
