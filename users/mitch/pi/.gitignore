@@ -1,0 +1,6 @@
+# Block private API keys and session tokens
+auth.json
+sessions/
+pi-debug.log
+.DS_Store
+

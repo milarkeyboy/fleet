@@ -1,0 +1,13 @@
+{
+  "name": "pi-extension-plan-mode",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'nothing to build'",
+    "check": "echo 'nothing to check'"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}
