@@ -1,6 +1,16 @@
 # Block private API keys and session tokens
 auth.json
+
+# Sessions are per-machine
 sessions/
+
+# No need for logs
 pi-debug.log
 .DS_Store
+
+# Pi needs to stash its own binaries sometimes.
+bin
+
+# Offline cache of available models.
+models-store.json
 
