@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface AgentRunOptions {
 	cwd: string;
@@ -26,6 +27,10 @@ export interface AgentRunResult {
 	messages: unknown[];
 }
 
+// Subagents must retain Gondolin's filesystem boundary without inheriting any
+// other user or project extensions.
+export const GONDOLIN_EXTENSION_PATH = fileURLToPath(new URL("../gondolin/index.ts", import.meta.url));
+
 function invocation(args: string[]): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
 	if (currentScript && !currentScript.startsWith("/$bunfs/root/") && existsSync(currentScript)) {
@@ -47,6 +52,7 @@ export function buildAgentArgs(options: AgentRunOptions, promptPath: string): st
 		"-p",
 		"--no-session",
 		"--no-extensions",
+		"-e", GONDOLIN_EXTENSION_PATH,
 		"--no-skills",
 		...options.skillPaths.flatMap((skillPath) => ["--skill", skillPath]),
 		"--no-prompt-templates",

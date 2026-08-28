@@ -19,8 +19,10 @@
  *   - QEMU installed (for example, `brew install qemu` on macOS)
  */
 
+import { realpathSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { RealFSProvider, VM } from "@earendil-works/gondolin";
+import { ReadonlyProvider, RealFSProvider, VM } from "@earendil-works/gondolin";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	type BashOperations,
@@ -321,6 +323,115 @@ function sanitizeEnv(env: NodeJS.ProcessEnv | undefined): Record<string, string>
 	return result;
 }
 
+function shellQuote(value: string): string {
+	return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+async function createExclusiveProbe(vm: VM, directory: string, prefix: string): Promise<string> {
+	// mktemp creates the file with O_EXCL, avoiding both stale-file destruction
+	// and races with another validation running in the same workspace.
+	const result = await vm.exec([
+		"/bin/sh",
+		"-lc",
+		`mktemp ${shellQuote(path.posix.join(directory, `${prefix}-XXXXXX`))}`,
+	]);
+	if (result.exitCode !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || "unable to create probe");
+	return result.stdout.trim();
+}
+
+function isMissingPath(error: unknown): boolean {
+	return typeof error === "object" && error !== null && "code" in error && (error as { code?: string }).code === "ENOENT";
+}
+
+async function workspaceHasGitMetadata(vm: VM): Promise<boolean> {
+	let directory = GUEST_WORKSPACE;
+	while (directory !== "/") {
+		try {
+			await vm.fs.stat(path.posix.join(directory, ".git"));
+			return true;
+		} catch (error) {
+			if (!isMissingPath(error)) throw new Error(`Cannot inspect Git metadata in the Gondolin workspace: ${error instanceof Error ? error.message : String(error)}`);
+		}
+		directory = path.posix.dirname(directory);
+	}
+	return false;
+}
+
+async function provisionGuestGit(vm: VM): Promise<string> {
+	// Git is installed in the VM rootfs so repository inspection is available to
+	// subagents without making the host toolchain or workspace mounts writable.
+	const present = await vm.exec(["/bin/sh", "-lc", "command -v git"]);
+	if (present.exitCode !== 0) {
+		const install = await vm.exec(["/sbin/apk", "add", "--no-cache", "git"]);
+		if (install.exitCode !== 0) {
+			throw new Error(`Unable to provision Git in Gondolin: ${install.stderr.trim() || install.stdout.trim()}`);
+		}
+	}
+
+	const version = await vm.exec(["/usr/bin/git", "--version"]);
+	if (version.exitCode !== 0) throw new Error(`Provisioned Git could not be executed: ${version.stderr.trim()}`);
+
+	// The host workspace is owned by the host user, whose UID does not match the
+	// guest user. Configure the ephemeral VM system-wide because tool calls retain
+	// the host HOME and therefore do not read the guest user's global config.
+	const safeDirectory = await vm.exec([
+		"/usr/bin/git",
+		"config",
+		"--system",
+		"--add",
+		"safe.directory",
+		GUEST_WORKSPACE,
+	]);
+	if (safeDirectory.exitCode !== 0) {
+		throw new Error(`Unable to trust Gondolin workspace: ${safeDirectory.stderr.trim() || safeDirectory.stdout.trim()}`);
+	}
+
+	// A non-Git workspace is supported by workflow mode, but inspection errors
+	// must not be mistaken for that case (for example, unsafe ownership).
+	const repository = await vm.exec(["/usr/bin/git", "-C", GUEST_WORKSPACE, "rev-parse", "--is-inside-work-tree"]);
+	if (repository.exitCode !== 0) {
+		const hasGitMetadata = await workspaceHasGitMetadata(vm);
+		if (hasGitMetadata || !/not a git repository/i.test(repository.stderr)) {
+			throw new Error(`Git cannot inspect the Gondolin workspace: ${repository.stderr.trim() || repository.stdout.trim()}`);
+		}
+	} else {
+		const status = await vm.exec(["/usr/bin/git", "-C", GUEST_WORKSPACE, "status", "--short"]);
+		if (status.exitCode !== 0) throw new Error(`Git cannot inspect the Gondolin workspace: ${status.stderr.trim()}`);
+	}
+
+	return version.stdout.trim();
+}
+
+async function validateWorkspaceWrite(vm: VM): Promise<void> {
+	let probePath: string | undefined;
+	try {
+		probePath = await createExclusiveProbe(vm, GUEST_WORKSPACE, ".gondolin-workspace-probe");
+		await vm.fs.writeFile(probePath, "probe", { encoding: "utf8" });
+	} catch (error) {
+		throw new Error(`Gondolin workspace is not writable: ${error instanceof Error ? error.message : String(error)}`);
+	} finally {
+		if (probePath) await vm.fs.deleteFile(probePath, { force: true });
+	}
+}
+
+async function validateReadonlyMounts(vm: VM, mountPaths: string[]): Promise<void> {
+	for (const mountPath of mountPaths) {
+		// Reading the directory and attempting an exclusive write catches both an
+		// accidentally missing mount and a writable overlay over the mount.
+		await vm.fs.listDir(mountPath);
+		let probePath: string | undefined;
+		try {
+			probePath = await createExclusiveProbe(vm, mountPath, ".gondolin-readonly-probe");
+			throw new Error(`Gondolin read-only mount is writable: ${mountPath}`);
+		} catch (error) {
+			if (probePath) throw error;
+			// EROFS is the expected result for a read-only mount.
+		} finally {
+			if (probePath) await vm.fs.deleteFile(probePath, { force: true });
+		}
+	}
+}
+
 function createGondolinBashOps(vm: VM, localCwd: string, shellPath: string): BashOperations {
 	return {
 		exec: async (command, cwd, { onData, signal, timeout, env }) => {
@@ -364,6 +475,15 @@ function createGondolinBashOps(vm: VM, localCwd: string, shellPath: string): Bas
 
 export default function (pi: ExtensionAPI) {
 	const localCwd = process.cwd();
+	// Keep shared agent instructions available to isolated subagents without
+	// granting the VM access to Pi state, authentication, or other home files.
+	// Resolve the out-of-store symlink before mounting. The workspace mount also
+	// contains the symlink target, so it needs a nested read-only overlay too.
+	const agentsPath = path.resolve(os.homedir(), ".agents");
+	const hostAgents = realpathSync(agentsPath);
+	const workspaceAgents = isInsideHostPath(localCwd, hostAgents)
+		? hostPathToGuest(localCwd, hostAgents)
+		: undefined;
 	const localRead = createReadTool(localCwd);
 	const localWrite = createWriteTool(localCwd);
 	const localEdit = createEditTool(localCwd);
@@ -378,22 +498,34 @@ export default function (pi: ExtensionAPI) {
 
 	async function startVm(ctx?: ExtensionContext): Promise<VM> {
 		ctx?.ui.setStatus("gondolin", ctx.ui.theme.fg("accent", `Gondolin: starting ${GUEST_WORKSPACE}`));
+		const readonlyAgents = new ReadonlyProvider(new RealFSProvider(hostAgents));
+		const mounts: Record<string, RealFSProvider | ReadonlyProvider> = {
+			[GUEST_WORKSPACE]: new RealFSProvider(localCwd),
+			// Preserve the path advertised by Pi while sourcing its symlink target.
+			[agentsPath]: readonlyAgents,
+		};
+		if (workspaceAgents) mounts[workspaceAgents] = new ReadonlyProvider(new RealFSProvider(hostAgents));
+
 		const created = await VM.create({
 			sessionLabel: `pi ${path.basename(localCwd)}`,
-			vfs: {
-				mounts: {
-					[GUEST_WORKSPACE]: new RealFSProvider(localCwd),
-				},
-			},
+			vfs: { mounts },
 		});
-		const bashProbe = await created.exec(["/bin/sh", "-lc", "command -v bash || true"]);
-		shellPath = bashProbe.stdout.trim() || "/bin/sh";
-		vm = created;
+		try {
+			const gitVersion = await provisionGuestGit(created);
+			await validateWorkspaceWrite(created);
+			await validateReadonlyMounts(created, workspaceAgents ? [agentsPath, workspaceAgents] : [agentsPath]);
+			const bashProbe = await created.exec(["/bin/sh", "-lc", "command -v bash || true"]);
+			shellPath = bashProbe.stdout.trim() || "/bin/sh";
+			vm = created;
+			ctx?.ui.notify(`Gondolin VM ready with ${gitVersion}. ${localCwd} is mounted at ${GUEST_WORKSPACE}; ${agentsPath} is read-only.`, "info");
+		} catch (error) {
+			await created.close();
+			throw error;
+		}
 		ctx?.ui.setStatus(
 			"gondolin",
 			ctx.ui.theme.fg("accent", `Gondolin: ${created.id.slice(0, 8)} (${GUEST_WORKSPACE})`),
 		);
-		ctx?.ui.notify(`Gondolin VM ready. ${localCwd} is mounted at ${GUEST_WORKSPACE}.`, "info");
 		return created;
 	}
 
