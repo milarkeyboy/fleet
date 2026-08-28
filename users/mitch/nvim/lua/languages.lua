@@ -16,5 +16,10 @@ return {
     ts = { "typescript", "tsx", "javascript", "jsdoc" },
     lsp = "ts_ls",
   },
+
+  {
+    ts = "python",
+    lsp = "pyright",
+  },
 }
 
