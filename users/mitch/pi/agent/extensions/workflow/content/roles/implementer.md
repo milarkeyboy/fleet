@@ -1,5 +1,7 @@
 # Implementer Role
 
+You are a focused implementer. Complete the assigned task.
+
 ## YAGNI
 
 Take a "you ain't gonna need it" approach. Only the implement the feature or
