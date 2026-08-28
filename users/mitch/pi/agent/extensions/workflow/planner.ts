@@ -1,20 +1,10 @@
 import type { MarkdownContent } from "./content.ts";
 import type { WorkflowTodo } from "./state.ts";
 
-const LEGACY_SKILL_ALIASES: Record<string, string> = {
-	cpp: "cpp-development",
-	"c++": "cpp-development",
-	cxx: "cpp-development",
-	python: "python-development",
-	py: "python-development",
-};
-
 export function resolveSkillTag(value: string | undefined, skills: Record<string, MarkdownContent>): string | undefined {
 	if (!value) return undefined;
 	const normalized = value.trim().toLowerCase();
-	if (Object.hasOwn(skills, normalized)) return normalized;
-	const aliased = LEGACY_SKILL_ALIASES[normalized];
-	return aliased && Object.hasOwn(skills, aliased) ? aliased : undefined;
+	return Object.hasOwn(skills, normalized) ? normalized : undefined;
 }
 
 export function extractWorkflowTodos(message: string, skills: Record<string, MarkdownContent> = {}): WorkflowTodo[] {
@@ -58,7 +48,7 @@ Workflow plan format:
 - Use numbered todos that are independently implementable and reviewable.
 - A todo may start with one discovered Agent Skill tag when that skill directly applies.
 - Tags are optional. Leave a todo untagged when no discovered skill is relevant; never guess an unrelated skill.
-- Use exact skill names, except [cpp], [c++], [cxx], [python], and [py] remain aliases for the bundled development skills when available.
+- Use exact skill names.
 
 Discovered Agent Skills:
 ${available.length ? available.join("\n") : "- None. Produce untagged todos."}
@@ -66,7 +56,7 @@ ${available.length ? available.join("\n") : "- None. Produce untagged todos."}
 Example:
 Plan:
 1. Implement the general workflow state migration.
-2. [python-development] Update Python bindings and focused tests.
+2. [python] Update Python bindings and focused tests.
 `.trim();
 }
 

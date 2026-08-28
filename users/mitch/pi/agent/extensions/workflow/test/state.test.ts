@@ -4,7 +4,7 @@ import { shouldAutomaticallyRevise, WorkflowOrchestrator } from "../orchestrator
 import { createWorkflowState, restoreState, type WorkflowTodo } from "../state.ts";
 
 function todo(cycles: number): WorkflowTodo {
-	return { step: 1, text: "Task", primarySkill: "python-development", status: "reviewing", attempts: cycles, automaticReviewCycles: cycles, changedFiles: [], review: { verdict: "request_changes", summary: "fix", findings: ["issue"] } };
+	return { step: 1, text: "Task", primarySkill: "python", status: "reviewing", attempts: cycles, automaticReviewCycles: cycles, changedFiles: [], review: { verdict: "request_changes", summary: "fix", findings: ["issue"] } };
 }
 
 test("review retries stop after two implement/review cycles", () => {
@@ -33,7 +33,7 @@ test("migrates explicit legacy languages and clears inferred assignments", () =>
 		],
 	});
 	assert.equal(restored?.version, 2);
-	assert.equal(restored?.todos[0].primarySkill, "cpp-development");
+	assert.equal(restored?.todos[0].primarySkill, "cpp");
 	assert.equal(restored?.todos[0].skillSource, "plan");
 	assert.equal(restored?.todos[1].primarySkill, undefined);
 	assert.equal("language" in (restored?.todos[0] ?? {}), false);

@@ -33,7 +33,7 @@ A todo is complete only after review and explicit human approval.
 | `/workflow diff [step]` | Show the todo-specific Git diff |
 | `/workflow pause` / `resume` | Pause or resume orchestration |
 | `/workflow abort` | Abort the current todo |
-| `/workflow roles` | Show resolved roles, skills, supplemental skills, and diagnostics |
+| `/workflow roles` | Show resolved roles, skills, and diagnostics |
 | `/workflow reload` | Reload Markdown customizations |
 | `/workflow init` | Copy portable placeholders into the project |
 | `/workflow clear` | Clear workflow state |
@@ -66,12 +66,12 @@ Final plans use numbered todos under `Plan:`. A todo may carry one primary skill
 Plan:
 1. Update the general TypeScript workflow state.
 2. [rust] Implement the Rust parser and focused tests.
-3. [python-development] Update the Python bindings.
+3. [python] Update the Python bindings.
 ```
 
-The planner is told to leave work untagged when no discovered skill applies. Untagged todos execute normally without a primary skill. `[cpp]`, `[c++]`, and `[cxx]` alias `cpp-development`; `[python]` and `[py]` alias `python-development` when those skills exist. An unknown explicit tag must be resolved interactively or with `/workflow skill N NAME|none` before execution.
+The planner is told to leave work untagged when no discovered skill applies. Untagged todos execute normally without a primary skill. Tags must use exact discovered skill names. An unknown explicit tag must be resolved interactively or with `/workflow skill N NAME|none` before execution.
 
-Legacy persisted state is migrated: explicit C++ and Python assignments become the bundled canonical skill names, while old inferred assignments are cleared.
+Legacy persisted language assignments retain their exact names, while old inferred assignments are cleared.
 
 ## Portable roles and Agent Skills
 
@@ -79,38 +79,22 @@ Run `/workflow init` in a trusted project to create:
 
 ```text
 .agents/
-├── workflow/
-│   └── roles/
-│       ├── implementer.md
-│       └── reviewer.md
-└── skills/
-    ├── cpp-development/SKILL.md
-    └── python-development/SKILL.md
+└── workflow/
+    └── roles/
+        ├── implementer.md
+        └── reviewer.md
 ```
 
-The supplied skills are placeholders. Add any standard Agent Skill at `.agents/skills/<name>/SKILL.md`; recursive discovery makes it immediately available without TypeScript changes.
+Role files are plain Markdown prompts with no frontmatter, so they can also be supplied directly to other subagent harnesses.
+
+Add any standard Agent Skill at `~/.agents/skills/<name>/SKILL.md` or `.agents/skills/<name>/SKILL.md`; recursive discovery makes it immediately available without TypeScript changes.
 
 Discovery precedence is:
 
-1. bundled skills
-2. user `~/.agents/skills/`
-3. trusted project `.agents/skills/`
+1. user `~/.agents/skills/`
+2. trusted project `.agents/skills/`
 
-Higher-precedence skills override the same canonical name. `/workflow roles` reports overrides, invalid skills, duplicate names, and missing role skill references. Project content is ignored until the project is trusted.
-
-Role files are plain Markdown. They may request generic supplemental skills with portable frontmatter:
-
-```yaml
----
-name: workflow-reviewer
-description: Reviews one bounded workflow task.
-skills:
-  - security-review
-  - testing
----
-```
-
-Supplemental skills load for that role even when a todo is untagged. For tagged todos, the primary skill is loaded first, followed by deduplicated role skills. A missing referenced skill fails clearly rather than silently weakening the role.
+Project skills override user skills with the same canonical name. `/workflow roles` reports overrides, invalid skills, and duplicate names. Project content is ignored until the project is trusted.
 
 ## Context isolation
 
@@ -123,7 +107,7 @@ Every implementer and reviewer is a fresh pi JSON-mode subprocess launched with:
 - `--no-context-files`
 - the role's required configured model and thinking level
 
-The implementer receives only its role, selected skills, current todo, relevant paths, concise prerequisite handoffs, and revision feedback. The reviewer receives its role, its selected skills, the todo-specific diff, implementation summary, and validation results. Reviewer tools exclude `edit`, `write`, and `bash`.
+The implementer receives only its role, selected primary skill, current todo, relevant paths, concise prerequisite handoffs, and revision feedback. The reviewer receives its role, the selected primary skill, the todo-specific diff, implementation summary, and validation results. Reviewer tools exclude `edit`, `write`, and `bash`.
 
 ## Git, review, and persistence
 

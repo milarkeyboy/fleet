@@ -16,7 +16,7 @@ test("subagent arguments isolate extensions, context, and selected skills", () =
 	assert.equal(args.filter((arg) => arg === "--skill").length, 2);
 	assert.ok(args.includes("/skills/rust/SKILL.md"));
 	assert.ok(args.includes("/skills/testing/SKILL.md"));
-	assert.ok(!args.includes("/skills/python-development/SKILL.md"));
+	assert.ok(!args.includes("/skills/python/SKILL.md"));
 	assert.deepEqual(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2), ["--model", "openai/gpt-coder"]);
 });
 

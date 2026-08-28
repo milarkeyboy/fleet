@@ -41,6 +41,10 @@
       };
     };
 
+    # Agent Skills
+    home.file.".agents".source =
+      config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/fleet/users/mitch/agents";
+
     # Neovim
     xdg.configFile."nvim".source =
       config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/fleet/users/mitch/nvim";

@@ -106,11 +106,7 @@ function migrateTodo(value: unknown, legacy: boolean): WorkflowTodo | undefined 
 	if (typeof todo.automaticReviewCycles !== "number") todo.automaticReviewCycles = 0;
 
 	if (legacy && typeof candidate.language === "string" && candidate.languageSource !== "inferred") {
-		todo.primarySkill = candidate.language === "cpp"
-			? "cpp-development"
-			: candidate.language === "python"
-				? "python-development"
-				: candidate.language;
+		todo.primarySkill = candidate.language;
 		if (candidate.languageSource === "plan" || candidate.languageSource === "user") todo.skillSource = candidate.languageSource;
 	}
 	return todo;

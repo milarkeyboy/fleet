@@ -1,5 +1,5 @@
 ---
-name: python-development
+name: python
 description: Python implementation and review guidance. Use for tasks involving Python modules, packaging, typing, or Python tests.
 license: CC0-1.0
 compatibility: Requires the Python version and environment configured by the repository.

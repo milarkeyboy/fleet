@@ -4,20 +4,19 @@ import type { MarkdownContent, WorkflowContent } from "../content.ts";
 import { implementerInvocation, reviewerInvocation } from "../context.ts";
 import { createWorkflowState, type WorkflowTodo } from "../state.ts";
 
-function markdown(name: string, skills: string[] = []): MarkdownContent {
-	return { name, description: name, body: `${name} body`, filePath: `/content/${name}/SKILL.md`, source: "bundled", skills };
+function skill(name: string): MarkdownContent {
+	return { name, description: name, body: `${name} body`, filePath: `/content/${name}/SKILL.md`, source: "user" };
 }
 
-function content(implementerSkills: string[] = [], reviewerSkills: string[] = []): WorkflowContent {
+function content(): WorkflowContent {
 	return {
 		roles: {
-			implementer: { ...markdown("workflow-implementer", implementerSkills), filePath: "/roles/implementer.md" },
-			reviewer: { ...markdown("workflow-reviewer", reviewerSkills), filePath: "/roles/reviewer.md" },
+			implementer: { name: "implementer", body: "Implementer prompt", filePath: "/roles/implementer.md", source: "bundled" },
+			reviewer: { name: "reviewer", body: "Reviewer prompt", filePath: "/roles/reviewer.md", source: "bundled" },
 		},
 		skills: {
-			rust: markdown("rust"),
-			testing: markdown("testing"),
-			"security-review": markdown("security-review"),
+			cpp: skill("cpp"),
+			python: skill("python"),
 		},
 		diagnostics: [],
 	};
@@ -30,23 +29,20 @@ function todo(primarySkill?: string): WorkflowTodo {
 	};
 }
 
-test("untagged todos load role supplemental skills without a primary skill", () => {
-	const invocation = implementerInvocation(createWorkflowState(), todo(), content(["testing"]));
-	assert.deepEqual(invocation.skillPaths, ["/content/testing/SKILL.md"]);
+test("untagged todos run without an Agent Skill", () => {
+	const invocation = implementerInvocation(createWorkflowState(), todo(), content());
+	assert.deepEqual(invocation.skillPaths, []);
+	assert.match(invocation.systemPrompt, /^Implementer prompt/);
 	assert.doesNotMatch(invocation.task, /\[unassigned\]/);
 });
 
-test("primary and supplemental skills are ordered and deduplicated", () => {
-	const invocation = implementerInvocation(createWorkflowState(), todo("rust"), content(["rust", "testing"]));
-	assert.deepEqual(invocation.skillPaths, ["/content/rust/SKILL.md", "/content/testing/SKILL.md"]);
-	assert.match(invocation.systemPrompt, /rust.*testing/s);
+test("the todo primary skill is supplied to implementers and reviewers", () => {
+	const implementation = implementerInvocation(createWorkflowState(), todo("cpp"), content());
+	const review = reviewerInvocation(todo("python"), content());
+	assert.deepEqual(implementation.skillPaths, ["/content/cpp/SKILL.md"]);
+	assert.deepEqual(review.skillPaths, ["/content/python/SKILL.md"]);
 });
 
-test("reviewers use their own supplemental skills", () => {
-	const invocation = reviewerInvocation(todo("rust"), content([], ["security-review"]));
-	assert.deepEqual(invocation.skillPaths, ["/content/rust/SKILL.md", "/content/security-review/SKILL.md"]);
-});
-
-test("missing role skills fail clearly", () => {
-	assert.throws(() => implementerInvocation(createWorkflowState(), todo(), content(["missing"])), /requires undiscovered Agent Skill "missing"/);
+test("missing primary skills fail clearly", () => {
+	assert.throws(() => implementerInvocation(createWorkflowState(), todo("missing"), content()), /requires undiscovered Agent Skill "missing"/);
 });

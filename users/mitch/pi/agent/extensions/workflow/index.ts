@@ -1,8 +1,7 @@
-import { cp, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { bundledContentRoot, discoverWorkflowContent, type WorkflowContent } from "./content.ts";
+import { discoverWorkflowContent, scaffoldWorkflowRoles, type WorkflowContent } from "./content.ts";
 import { createWorkflowSubprocessModelRegistry, formatWorkflowModels, isProviderModel, isWorkflowRole, isWorkflowThinkingLevel, loadWorkflowModelConfig, requireExecutableWorkflowModels, setWorkflowRoleModel, workflowConfigPath, WORKFLOW_THINKING_LEVELS } from "./config.ts";
 import { WorkflowOrchestrator } from "./orchestrator.ts";
 import { appendPlanFormatInstructions, extractWorkflowTodos, resolveSkillTag } from "./planner.ts";
@@ -37,7 +36,7 @@ function helpText(): string {
 		"/workflow skill <step> <name|none> — assign or clear a primary skill",
 		"/workflow pause|resume|abort — control execution",
 		"/workflow roles|reload — inspect/reload Markdown content",
-		"/workflow init — scaffold portable roles and skills in .agents/",
+		"/workflow init — scaffold portable workflow roles in .agents/",
 		"/workflow clear — clear workflow state",
 	].join("\n");
 }
@@ -127,16 +126,10 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 			const ok = await ctx.ui.confirm("Initialize workflow Markdown?", `Copy portable placeholders into ${path.join(ctx.cwd, ".agents")} without overwriting existing files?`);
 			if (!ok) return;
 		}
-		const root = bundledContentRoot();
 		const agents = path.join(ctx.cwd, ".agents");
-		await mkdir(path.join(agents, "workflow", "roles"), { recursive: true });
-		await mkdir(path.join(agents, "skills"), { recursive: true });
-		for (const role of ["implementer", "reviewer"]) {
-			await cp(path.join(root, "roles", `${role}.md`), path.join(agents, "workflow", "roles", `${role}.md`), { force: false, errorOnExist: false });
-		}
-		await cp(path.join(root, "skills"), path.join(agents, "skills"), { recursive: true, force: false, errorOnExist: false });
+		await scaffoldWorkflowRoles(agents);
 		reloadContent(ctx);
-		ctx.ui.notify(`Workflow placeholders initialized under ${agents}. Existing files were preserved.`, "info");
+		ctx.ui.notify(`Workflow role placeholders initialized under ${agents}. Existing files were preserved.`, "info");
 	}
 
 	async function approveCurrent(ctx: ExtensionContext): Promise<void> {
@@ -229,7 +222,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				if (command === "roles") {
 					const found = getContent(ctx);
 					return ctx.ui.notify([
-						...Object.entries(found.roles).map(([name, role]) => `${name}: ${role.source} — ${role.filePath}${role.skills.length ? `\n  supplemental skills: ${role.skills.join(", ")}` : ""}`),
+						...Object.entries(found.roles).map(([name, role]) => `${name}: ${role.source} — ${role.filePath}`),
 						...Object.entries(found.skills).map(([name, skill]) => `${name}: ${skill.source} — ${skill.filePath}`),
 						...(found.diagnostics.length ? ["Diagnostics:", ...found.diagnostics.map((message) => `- ${message}`)] : []),
 					].join("\n"), "info");

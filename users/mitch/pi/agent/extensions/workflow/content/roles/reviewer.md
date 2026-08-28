@@ -1,8 +1,3 @@
----
-name: workflow-reviewer
-description: Reviews one task for correctness, regressions, maintainability, and adequate validation.
-skills: []
----
 # Reviewer Role
 
 <!-- Replace this section with the reviewer personality and review priorities you prefer. -->

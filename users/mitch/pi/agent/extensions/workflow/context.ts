@@ -1,4 +1,4 @@
-import type { MarkdownContent, WorkflowContent } from "./content.ts";
+import type { MarkdownContent, WorkflowContent, WorkflowRoleContent } from "./content.ts";
 import { extractRelevantFiles } from "./planner.ts";
 import type { ImplementationResult, ReviewResult, WorkflowState, WorkflowTodo } from "./state.ts";
 
@@ -9,17 +9,15 @@ function dependencyHandoffs(state: WorkflowState, todo: WorkflowTodo): string {
 	return prior.length ? prior.join("\n") : "- None";
 }
 
-function rolePrompt(role: MarkdownContent, protocol: string): string {
+function rolePrompt(role: WorkflowRoleContent, protocol: string): string {
 	return `${role.body.trim()}\n\n---\n\n# Workflow Protocol (required)\n\n${protocol}`;
 }
 
-function selectedSkills(todo: WorkflowTodo, role: MarkdownContent, content: WorkflowContent): MarkdownContent[] {
-	const names = [...new Set([...(todo.primarySkill ? [todo.primarySkill] : []), ...role.skills])];
-	return names.map((name) => {
-		const skill = Object.hasOwn(content.skills, name) ? content.skills[name] : undefined;
-		if (!skill) throw new Error(`Workflow ${role.name} requires undiscovered Agent Skill "${name}".`);
-		return skill;
-	});
+function selectedSkills(todo: WorkflowTodo, content: WorkflowContent): MarkdownContent[] {
+	if (!todo.primarySkill) return [];
+	const skill = Object.hasOwn(content.skills, todo.primarySkill) ? content.skills[todo.primarySkill] : undefined;
+	if (!skill) throw new Error(`Workflow requires undiscovered Agent Skill "${todo.primarySkill}".`);
+	return [skill];
 }
 
 function skillProtocol(skills: MarkdownContent[]): string {
@@ -34,7 +32,7 @@ function todoHeading(todo: WorkflowTodo): string {
 export function implementerInvocation(state: WorkflowState, todo: WorkflowTodo, content: WorkflowContent) {
 	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
 	const role = content.roles.implementer;
-	const skills = selectedSkills(todo, role, content);
+	const skills = selectedSkills(todo, content);
 	const relevant = extractRelevantFiles(todo.text);
 	const protocol = `Work only on the assigned todo. You may inspect additional files when necessary, but do not start another todo.
 ${skillProtocol(skills)}
@@ -58,7 +56,7 @@ ${feedback ? `\nRevision feedback:\n${feedback}` : ""}`;
 export function reviewerInvocation(todo: WorkflowTodo, content: WorkflowContent) {
 	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
 	const role = content.roles.reviewer;
-	const skills = selectedSkills(todo, role, content);
+	const skills = selectedSkills(todo, content);
 	const implementation = todo.implementation as ImplementationResult;
 	const protocol = `You are read-only: do not edit or create files. Review only the assigned todo and supplied todo-specific diff.
 ${skillProtocol(skills)}

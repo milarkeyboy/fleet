@@ -1,5 +1,5 @@
 ---
-name: cpp-development
+name: cpp
 description: C++ implementation and review guidance. Use for tasks involving C++, headers, build systems, native libraries, or C++ tests.
 license: CC0-1.0
 compatibility: Requires the repository's configured C++ compiler and build system.
