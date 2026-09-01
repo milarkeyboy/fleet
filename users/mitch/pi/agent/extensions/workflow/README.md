@@ -96,6 +96,31 @@ Discovery precedence is:
 
 Project skills override user skills with the same canonical name. `/workflow roles` reports overrides, invalid skills, and duplicate names. Project content is ignored until the project is trusted.
 
+## Execution and policy
+
+Pi and workflow subagents execute in the host working tree. Bash commands run
+on the host with the invoking user's normal permissions; there is no Gondolin
+VM or QEMU boundary in the current configuration. File tools likewise operate
+on the host workspace.
+
+The bash-policy extension is enabled for top-level sessions and is explicitly
+loaded by each workflow subprocess. It denies selected textual forms of
+high-risk bash commands before execution: privilege escalation, host
+management, destructive Git operations (including direct matched forms of
+`git push`), catastrophic deletion, and selected global package-install
+forms. Its matching is deterministic: rules are evaluated in fixed source
+order and the first match supplies the denial category.
+
+The policy is only a guardrail, not a sandbox or complete security boundary.
+It uses text matching rather than a shell parser, so command prefixes such as
+`git -C repo push`, `/usr/bin/git push`, and `command git push`, as well as
+obfuscation and indirect execution, may evade it. It does not restrict
+filesystem, network, or process access, and accepted commands can affect the
+host. Review consequential commands and do not infer safety from the absence
+of a denial. The Gondolin source remains under `extensions/gondolin` for
+possible future re-enablement, but it is excluded from extension discovery in
+the current settings.
+
 ## Context isolation
 
 Every implementer and reviewer is a fresh pi JSON-mode subprocess launched with:
