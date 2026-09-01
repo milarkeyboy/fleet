@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAgentArgs, extractProtocolJson, GONDOLIN_EXTENSION_PATH } from "../runner.ts";
+import { BASH_POLICY_EXTENSION_PATH, buildAgentArgs, extractProtocolJson } from "../runner.ts";
 
 function options(skillPaths: string[]) {
 	return {
@@ -11,7 +11,7 @@ function options(skillPaths: string[]) {
 test("subagent arguments isolate extensions, context, and selected skills", () => {
 	const args = buildAgentArgs(options(["/skills/rust/SKILL.md", "/skills/testing/SKILL.md"]), "/tmp/role.md");
 	assert.ok(args.includes("--no-extensions"));
-	assert.deepEqual(args.slice(args.indexOf("-e"), args.indexOf("-e") + 2), ["-e", GONDOLIN_EXTENSION_PATH]);
+	assert.deepEqual(args.slice(args.indexOf("-e"), args.indexOf("-e") + 2), ["-e", BASH_POLICY_EXTENSION_PATH]);
 	assert.equal(args.filter((arg) => arg === "-e").length, 1);
 	assert.ok(args.includes("--no-skills"));
 	assert.ok(args.includes("--no-context-files"));
@@ -28,9 +28,10 @@ test("untagged subagents can run without any Agent Skill", () => {
 	assert.equal(args.includes("--skill"), false);
 });
 
-test("subagents load no extension other than Gondolin", () => {
+test("subagents load the bash policy and no discovered extensions", () => {
 	const args = buildAgentArgs(options([]), "/tmp/role.md");
-	assert.deepEqual(args.filter((arg) => arg === "-e" || arg.endsWith("/gondolin/index.ts")), ["-e", GONDOLIN_EXTENSION_PATH]);
+	assert.deepEqual(args.filter((arg) => arg === "-e" || arg.endsWith("/bash-policy/index.ts")), ["-e", BASH_POLICY_EXTENSION_PATH]);
+	assert.equal(args.some((arg) => arg.endsWith("/gondolin/index.ts")), false);
 });
 
 test("extracts structured handoff protocol", () => {
