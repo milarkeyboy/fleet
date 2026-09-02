@@ -1,17 +1,20 @@
 import path from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { discoverWorkflowContent, scaffoldWorkflowRoles, type WorkflowContent } from "./content.ts";
 import { createWorkflowSubprocessModelRegistry, formatWorkflowModels, isProviderModel, isWorkflowRole, isWorkflowThinkingLevel, loadWorkflowModelConfig, requireExecutableWorkflowModels, setWorkflowRoleModel, workflowConfigPath, WORKFLOW_THINKING_LEVELS } from "./config.ts";
 import { WorkflowOrchestrator } from "./orchestrator.ts";
 import { appendPlanningInstructions, extractWorkflowTodos, resolveSkillTag } from "./planner.ts";
 import { isReadOnlyPlanningCommand } from "./safety.ts";
-import { cloneState, createWorkflowState, currentTodo, isWorkflowComplete, restoreState, type WorkflowState } from "./state.ts";
-import { clearWorkflowUi, todoSummary, updateWorkflowUi } from "./ui.ts";
+import { cloneState, createWorkflowState, currentTodo, isWorkflowComplete, latestRevision, restoreState, type WorkflowState, type WorkflowTodo } from "./state.ts";
+import { clearWorkflowUi, formatWorkflowDiff, todoSummary, updateWorkflowUi } from "./ui.ts";
 
-const ENTRY_TYPE = "workflow-state-v2";
+const ENTRY_TYPE = "workflow-state-v3";
 const LEGACY_ENTRY_TYPE = "workflow-state-v1";
+const PREVIOUS_ENTRY_TYPE = "workflow-state-v2";
 const QUESTIONNAIRE_TOOL = "workflow_questionnaire";
+const DIFF_MESSAGE_TYPE = "workflow-diff";
 const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls", QUESTIONNAIRE_TOOL];
 const DISABLED_PLANNING_TOOLS = new Set(["write", "edit"]);
 
@@ -42,6 +45,11 @@ function helpText(): string {
 }
 
 export default function workflowExtension(pi: ExtensionAPI): void {
+	pi.registerMessageRenderer<{ title: string; diff: string }>(DIFF_MESSAGE_TYPE, (message, { outputPad }, theme) => {
+		if (!message.details) return undefined;
+		return new Text(`${theme.fg("accent", theme.bold(message.details.title))}\n${formatWorkflowDiff(message.details.diff, theme)}`, outputPad, 0);
+	});
+
 	let state = createWorkflowState();
 	let content: WorkflowContent | undefined;
 	let orchestrator: WorkflowOrchestrator;
@@ -136,7 +144,6 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		const todo = currentTodo(state);
 		if (!todo || todo.status !== "awaiting-user") throw new Error("No todo is awaiting human approval.");
 		todo.status = "approved";
-		todo.humanFeedback = undefined;
 		state.currentStep = state.todos.find((item) => item.status === "pending")?.step;
 		state.executing = !isWorkflowComplete(state);
 		persist();
@@ -158,6 +165,17 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		await orchestrator.reviseFromHuman(ctx, todo, feedback);
 	}
 
+	function showTodoDiff(todo: WorkflowTodo): void {
+		const title = `Todo ${todo.step} revision diff`;
+		const diff = latestRevision(todo)?.diffPreview ?? "Diff unavailable.";
+		pi.sendMessage({
+			customType: DIFF_MESSAGE_TYPE,
+			content: `${title}\n\n${diff}`,
+			display: true,
+			details: { title, diff },
+		}, { triggerTurn: false });
+	}
+
 	async function reviewCurrent(ctx: ExtensionContext): Promise<void> {
 		const todo = currentTodo(state);
 		if (!todo) throw new Error("There is no current todo.");
@@ -165,7 +183,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		if (!ctx.hasUI || todo.status !== "awaiting-user") return;
 		const action = await ctx.ui.select("Human acceptance", ["Approve and continue", "Inspect todo diff", "Request changes", "Ask reviewer to reconsider", "Pause workflow", "Abort workflow"]);
 		if (action === "Approve and continue") await approveCurrent(ctx);
-		else if (action === "Inspect todo diff") pi.sendMessage({ customType: "workflow-diff", content: `## Todo ${todo.step} diff\n\n\`\`\`diff\n${todo.diffPreview ?? "Diff unavailable."}\n\`\`\``, display: true }, { triggerTurn: false });
+		else if (action === "Inspect todo diff") showTodoDiff(todo);
 		else if (action === "Request changes") await requestFeedback("", ctx);
 		else if (action === "Ask reviewer to reconsider") await requestFeedback("Reconsider the implementation in light of the prior review and perform another independent review. Do not change code unless needed to address a concrete issue.", ctx);
 		else if (action === "Pause workflow") { state.paused = true; persist(); update(ctx); }
@@ -282,7 +300,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				if (command === "diff") {
 					const selected = rest[0] ? state.todos.find((todo) => todo.step === Number(rest[0])) : currentTodo(state);
 					if (!selected) throw new Error("Todo not found.");
-					return pi.sendMessage({ customType: "workflow-diff", content: `## Todo ${selected.step} diff\n\n\`\`\`diff\n${selected.diffPreview ?? "Diff unavailable."}\n\`\`\``, display: true }, { triggerTurn: false });
+					return showTodoDiff(selected);
 				}
 				if (command === "pause") { state.paused = true; persist(); update(ctx); return; }
 				if (command === "resume") { state.paused = false; persist(); update(ctx); return await orchestrator.execute(ctx); }
@@ -325,7 +343,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		const saved = ctx.sessionManager.getEntries().filter((entry: any) => entry.type === "custom" && (entry.customType === ENTRY_TYPE || entry.customType === LEGACY_ENTRY_TYPE)).pop() as { data?: unknown } | undefined;
+		const saved = ctx.sessionManager.getEntries().filter((entry: any) => entry.type === "custom" && (entry.customType === ENTRY_TYPE || entry.customType === PREVIOUS_ENTRY_TYPE || entry.customType === LEGACY_ENTRY_TYPE)).pop() as { data?: unknown } | undefined;
 		state = restoreState(saved?.data) ?? createWorkflowState();
 		if (pi.getFlag("workflow") === true) state.planning = true;
 		reloadContent(ctx);

@@ -1,4 +1,4 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { currentTodo, isWorkflowComplete, type WorkflowState, type WorkflowTodo } from "./state.ts";
 
 const STATUS_KEY = "workflow-status";
@@ -49,6 +49,16 @@ export function clearWorkflowUi(ctx: ExtensionContext): void {
 	ctx.ui.setWidget(WIDGET_KEY, undefined);
 }
 
+/** Render a raw unified Git diff with Pi's native diff palette. */
+export function formatWorkflowDiff(diff: string, theme: Theme): string {
+	return diff.split("\n").map((line) => {
+		if (!line) return "";
+		if (line.startsWith("+") && !line.startsWith("+++")) return theme.fg("toolDiffAdded", line);
+		if (line.startsWith("-") && !line.startsWith("---")) return theme.fg("toolDiffRemoved", line);
+		return theme.fg("toolDiffContext", line);
+	}).join("\n");
+}
+
 export function todoSummary(todo: WorkflowTodo): string {
 	const skill = todo.primarySkill ? ` [${todo.primarySkill}]` : "";
 	const lines = [
@@ -57,15 +67,23 @@ export function todoSummary(todo: WorkflowTodo): string {
 		`Attempts: ${todo.attempts}`,
 	];
 	if (todo.skillRequest) lines.push(`Unknown requested skill: ${todo.skillRequest}`);
-	if (todo.implementation) {
-		lines.push("", `Implementer${todo.implementation.model ? ` (${todo.implementation.model}${todo.implementation.thinkingLevel ? `, thinking: ${todo.implementation.thinkingLevel}` : ""})` : ""}:`, todo.implementation.summary);
-		if (todo.implementation.tests.length) lines.push("", "Validation:", ...todo.implementation.tests.map((test) => `- ${test}`));
+	if (todo.revisions.length) lines.push("", "Checkpoint history:");
+	for (const [index, revision] of todo.revisions.entries()) {
+		lines.push("", `Revision ${index + 1}:`);
+		// A revision is one chronological exchange: human feedback, implementation,
+		// then review. Keeping these together makes later acceptance checkpoints
+		// show the complete back-and-forth instead of only the latest result.
+		if (revision.humanFeedback) lines.push("", "Human feedback:", revision.humanFeedback);
+		if (revision.implementation) {
+			lines.push("", `Implementer${revision.implementation.model ? ` (${revision.implementation.model}${revision.implementation.thinkingLevel ? `, thinking: ${revision.implementation.thinkingLevel}` : ""})` : ""}:`, revision.implementation.summary);
+			if (revision.implementation.tests.length) lines.push("", "Validation:", ...revision.implementation.tests.map((test) => `- ${test}`));
+		}
+		if (revision.review) {
+			lines.push("", `Reviewer${revision.review.model ? ` (${revision.review.model}${revision.review.thinkingLevel ? `, thinking: ${revision.review.thinkingLevel}` : ""})` : ""}: ${revision.review.verdict}`, revision.review.summary);
+			if (revision.review.findings.length) lines.push(...revision.review.findings.map((finding) => `- ${finding}`));
+		}
+		if (revision.changedFiles.length) lines.push("", "Files changed:", ...revision.changedFiles.map((file) => `- ${file}`));
 	}
-	if (todo.review) {
-		lines.push("", `Reviewer${todo.review.model ? ` (${todo.review.model}${todo.review.thinkingLevel ? `, thinking: ${todo.review.thinkingLevel}` : ""})` : ""}: ${todo.review.verdict}`, todo.review.summary);
-		if (todo.review.findings.length) lines.push(...todo.review.findings.map((finding) => `- ${finding}`));
-	}
-	if (todo.changedFiles.length) lines.push("", "Files changed:", ...todo.changedFiles.map((file) => `- ${file}`));
 	if (todo.error) lines.push("", `Error: ${todo.error}`);
 	return lines.join("\n");
 }

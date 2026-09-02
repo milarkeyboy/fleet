@@ -1,11 +1,14 @@
 import type { MarkdownContent, WorkflowContent, WorkflowRoleContent } from "./content.ts";
 import { extractRelevantFiles } from "./planner.ts";
-import type { ImplementationResult, ReviewResult, WorkflowState, WorkflowTodo } from "./state.ts";
+import { cumulativeRevision, latestRevision, type ImplementationResult, type ReviewResult, type WorkflowState, type WorkflowTodo } from "./state.ts";
 
 function dependencyHandoffs(state: WorkflowState, todo: WorkflowTodo): string {
 	const prior = state.todos
-		.filter((item) => item.step < todo.step && item.status === "approved" && item.implementation)
-		.map((item) => `- Todo ${item.step}: ${item.implementation?.summary}\n  Files: ${item.changedFiles.join(", ") || "none"}`);
+		.filter((item) => item.step < todo.step && item.status === "approved" && cumulativeRevision(item)?.implementation)
+		.map((item) => {
+			const revision = cumulativeRevision(item);
+			return `- Todo ${item.step}: ${revision?.implementation?.summary}\n  Files: ${revision?.changedFiles.join(", ") || "none"}`;
+		});
 	return prior.length ? prior.join("\n") : "- None";
 }
 
@@ -29,6 +32,15 @@ function todoHeading(todo: WorkflowTodo): string {
 	return `Todo ${todo.step}${todo.primarySkill ? ` [${todo.primarySkill}]` : ""}: ${todo.text}`;
 }
 
+function latestHumanFeedback(todo: WorkflowTodo): string | undefined {
+	return [...todo.revisions].reverse().find((revision) => revision.humanFeedback)?.humanFeedback;
+}
+
+function latestReviewerFeedback(todo: WorkflowTodo): string | undefined {
+	const review = [...todo.revisions].reverse().find((revision) => revision.review?.findings.length)?.review;
+	return review?.findings.join("\n- ");
+}
+
 export function implementerInvocation(state: WorkflowState, todo: WorkflowTodo, content: WorkflowContent) {
 	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
 	const role = content.roles.implementer;
@@ -39,7 +51,8 @@ ${skillProtocol(skills)}
 Validate your work with focused tests or checks. Do not claim a test passed unless you ran it.
 End with exactly one machine-readable block:
 <workflow-implementation>{"status":"completed|blocked","summary":"...","filesChanged":["..."],"tests":["command: result"],"notes":"optional"}</workflow-implementation>`;
-	const feedback = todo.humanFeedback || todo.review?.findings?.join("\n- ");
+	const humanFeedback = latestHumanFeedback(todo);
+	const reviewerFeedback = latestReviewerFeedback(todo);
 	const task = `Goal: ${state.goal ?? "Complete the accepted workflow plan"}
 
 ${todoHeading(todo)}
@@ -49,7 +62,8 @@ ${relevant.length ? relevant.map((file) => `- ${file}`).join("\n") : "- Discover
 
 Approved prerequisite handoffs:
 ${dependencyHandoffs(state, todo)}
-${feedback ? `\nRevision feedback:\n${feedback}` : ""}`;
+${humanFeedback ? `\nHuman revision requirements (take precedence if prior review findings conflict):\n${humanFeedback}` : ""}
+${reviewerFeedback ? `\nLatest reviewer findings:\n- ${reviewerFeedback}` : ""}`;
 	return { systemPrompt: rolePrompt(role, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
 }
 
@@ -57,26 +71,35 @@ export function reviewerInvocation(todo: WorkflowTodo, content: WorkflowContent)
 	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
 	const role = content.roles.reviewer;
 	const skills = selectedSkills(todo, content);
-	const implementation = todo.implementation as ImplementationResult;
+	const result = latestRevision(todo);
+	if (!result?.implementation) throw new Error(`Todo ${todo.step} has no implementation to review.`);
+	const implementation = result.implementation;
 	const protocol = `You are read-only: do not edit or create files. Review only the assigned todo and supplied todo-specific diff.
 ${skillProtocol(skills)}
 Apply the selected skills' review guidance where relevant.
+Treat supplied human feedback as revision requirements. Escalate if it conflicts with the original todo or cannot be satisfied safely.
 A request_changes verdict must contain concrete, actionable findings. Use escalate for ambiguity requiring a human decision.
 End with exactly one machine-readable block:
 <workflow-review>{"verdict":"approve|request_changes|escalate","summary":"...","findings":["..."]}</workflow-review>`;
 	const task = `${todoHeading(todo)}
 
+Human feedback governing this revision:
+${latestHumanFeedback(todo) ?? "(none)"}
+
 Implementer summary:
 ${implementation.summary}
 
-Reported files:
+Reported files (this revision):
 ${implementation.filesChanged.join("\n") || "(none)"}
+
+Files changed in this revision:
+${result.changedFiles.join("\n") || "(none)"}
 
 Validation:
 ${implementation.tests.join("\n") || "(none reported)"}
 
 Todo-specific diff:
-${todo.diffPreview ?? "(unavailable)"}`;
+${result.diffPreview ?? "(unavailable)"}`;
 	return { systemPrompt: rolePrompt(role, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
 }
 

@@ -25,7 +25,7 @@ export function extractWorkflowTodos(message: string, skills: Record<string, Mar
 			status: "pending",
 			attempts: 0,
 			automaticReviewCycles: 0,
-			changedFiles: [],
+			revisions: [],
 		});
 	}
 	return todos.slice(0, 40);

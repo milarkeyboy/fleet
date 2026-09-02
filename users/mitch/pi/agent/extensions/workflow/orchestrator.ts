@@ -4,7 +4,7 @@ import type { WorkflowContent } from "./content.ts";
 import { implementerInvocation, reviewerInvocation, validateImplementation, validateReview } from "./context.ts";
 import { diffTrees, snapshotWorktree } from "./git.ts";
 import { extractProtocolJson, runAgent } from "./runner.ts";
-import { currentTodo, isWorkflowComplete, nextPendingTodo, type ImplementationResult, type ReviewResult, type WorkflowState, type WorkflowTodo } from "./state.ts";
+import { currentTodo, isWorkflowComplete, latestRevision, nextPendingTodo, type ImplementationResult, type ReviewResult, type WorkflowRevision, type WorkflowState, type WorkflowTodo } from "./state.ts";
 import { todoSummary } from "./ui.ts";
 
 export interface OrchestratorHooks {
@@ -15,7 +15,7 @@ export interface OrchestratorHooks {
 }
 
 export function shouldAutomaticallyRevise(todo: WorkflowTodo): boolean {
-	return todo.review?.verdict === "request_changes" && todo.automaticReviewCycles < 2;
+	return latestRevision(todo)?.review?.verdict === "request_changes" && todo.automaticReviewCycles < 2;
 }
 
 export class WorkflowOrchestrator {
@@ -61,7 +61,7 @@ export class WorkflowOrchestrator {
 	async reviseFromHuman(ctx: ExtensionContext, todo: WorkflowTodo, feedback: string): Promise<void> {
 		if (this.running) throw new Error("A workflow subagent is already running.");
 		const models = await this.hooks.models(ctx);
-		todo.humanFeedback = feedback;
+		todo.revisions.push({ humanFeedback: feedback, changedFiles: [] });
 		todo.automaticReviewCycles = 0;
 		todo.status = "revising";
 		todo.error = undefined;
@@ -69,7 +69,7 @@ export class WorkflowOrchestrator {
 		this.state.executing = true;
 		this.state.currentStep = todo.step;
 		this.changed(ctx);
-		await this.runTodo(ctx, todo, true, models);
+		await this.runTodo(ctx, todo, true, models, latestRevision(todo));
 	}
 
 	private async runTodo(
@@ -77,10 +77,17 @@ export class WorkflowOrchestrator {
 		todo: WorkflowTodo,
 		revision: boolean,
 		models: CompleteWorkflowModelConfig,
+		revisionRecord?: WorkflowRevision,
 	): Promise<void> {
 		this.running = true;
 		try {
-			if (!todo.baselineTree) todo.baselineTree = await snapshotWorktree(ctx.cwd);
+			// A retry after a failed run must remain a distinct round. Human feedback
+			// already owns a record; only an unstarted feedback record may be resumed
+			// after a session restart, while automatic and command retries create one.
+			const pending = latestRevision(todo);
+			const resumableFeedback = pending !== undefined && Boolean(pending.humanFeedback) && !pending.implementation && !pending.review && !pending.baselineTree && !pending.resultTree && !pending.diffPreview;
+			const record: WorkflowRevision = revisionRecord ?? (resumableFeedback ? pending! : { changedFiles: [] });
+			if (record !== pending) todo.revisions.push(record);
 			todo.status = revision ? "revising" : "implementing";
 			todo.attempts++;
 			todo.automaticReviewCycles++;
@@ -89,29 +96,53 @@ export class WorkflowOrchestrator {
 
 			const content = this.hooks.content();
 			const invocation = implementerInvocation(this.state, todo, content);
-			const run = await runAgent({
-				cwd: ctx.cwd,
-				roleName: "workflow-implementer",
-				...invocation,
-				tools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
-				model: models.implementer.model,
-				thinkingLevel: models.implementer.thinkingLevel,
-				signal: ctx.signal,
-			});
-			todo.implementation = {
-				...validateImplementation(extractProtocolJson<ImplementationResult>(run.output, "workflow-implementation")),
-				model: models.implementer.model,
-				...(models.implementer.thinkingLevel ? { thinkingLevel: models.implementer.thinkingLevel } : {}),
-			};
-			todo.resultTree = await snapshotWorktree(ctx.cwd);
-			const diff = await diffTrees(ctx.cwd, todo.baselineTree, todo.resultTree);
-			todo.changedFiles = diff.changedFiles.length ? diff.changedFiles : todo.implementation.filesChanged;
-			todo.diffPreview = diff.preview;
-			todo.humanFeedback = undefined;
-			this.changed(ctx);
+			// Each round is measured from the worktree as it exists immediately before
+			// the implementer runs, so review focuses on only that round's changes.
+			record.baselineTree = await snapshotWorktree(ctx.cwd);
+			// Keep snapshotting in a finally block: an implementer can modify the
+			// worktree before its process fails or its structured response is rejected.
+			// Those edits are still an attempted revision and must not become the next
+			// round's invisible baseline.
+			try {
+				const run = await runAgent({
+					cwd: ctx.cwd,
+					roleName: "workflow-implementer",
+					...invocation,
+					tools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
+					model: models.implementer.model,
+					thinkingLevel: models.implementer.thinkingLevel,
+					signal: ctx.signal,
+				});
+				record.implementation = {
+					...validateImplementation(extractProtocolJson<ImplementationResult>(run.output, "workflow-implementation")),
+					model: models.implementer.model,
+					...(models.implementer.thinkingLevel ? { thinkingLevel: models.implementer.thinkingLevel } : {}),
+				};
+			} finally {
+				record.resultTree = await snapshotWorktree(ctx.cwd);
+				const diff = await diffTrees(ctx.cwd, record.baselineTree, record.resultTree);
+				record.changedFiles = diff.changedFiles.length ? diff.changedFiles : record.implementation?.filesChanged ?? [];
+				record.diffPreview = diff.preview;
 
-			if (todo.implementation.status === "blocked") {
-				todo.review = { verdict: "escalate", summary: "The implementer reported that the task is blocked.", findings: [todo.implementation.notes ?? "No blocker details supplied."] };
+				// Keep the per-revision diff above for round-by-round review, while also
+				// caching a todo-wide view for later approval and downstream handoffs.
+				const firstBaseline = todo.revisions.find((revision) => revision.baselineTree)?.baselineTree;
+				if (firstBaseline && record.resultTree) {
+					const cumulative = await diffTrees(ctx.cwd, firstBaseline, record.resultTree);
+					record.cumulativeChangedFiles = cumulative.changedFiles;
+					record.cumulativeDiffPreview = cumulative.preview;
+				} else {
+					record.cumulativeChangedFiles = [...new Set(todo.revisions.flatMap((revision) => revision.changedFiles))];
+					record.cumulativeDiffPreview = todo.revisions
+						.map((revision) => revision.diffPreview)
+						.filter((preview): preview is string => Boolean(preview))
+						.join("\n\n");
+				}
+				this.changed(ctx);
+			}
+
+			if (record.implementation?.status === "blocked") {
+				record.review = { verdict: "escalate", summary: "The implementer reported that the task is blocked.", findings: [record.implementation.notes ?? "No blocker details supplied."] };
 				todo.status = "awaiting-user";
 				this.state.executing = false;
 				this.changed(ctx);
@@ -131,7 +162,7 @@ export class WorkflowOrchestrator {
 				thinkingLevel: models.reviewer.thinkingLevel,
 				signal: ctx.signal,
 			});
-			todo.review = {
+			record.review = {
 				...validateReview(extractProtocolJson<ReviewResult>(reviewRun.output, "workflow-review")),
 				model: models.reviewer.model,
 				...(models.reviewer.thinkingLevel ? { thinkingLevel: models.reviewer.thinkingLevel } : {}),
@@ -149,8 +180,8 @@ export class WorkflowOrchestrator {
 			todo.status = "awaiting-user";
 			this.state.executing = false;
 			this.changed(ctx);
-			const kind = todo.review.verdict === "approve" ? "Reviewer approved; your approval is required." : "Workflow escalated for your decision.";
-			ctx.ui.notify(`${kind}\n\n${todoSummary(todo)}\n\nUse /workflow review.`, todo.review.verdict === "approve" ? "info" : "warning");
+			const kind = record.review!.verdict === "approve" ? "Reviewer approved; your approval is required." : "Workflow escalated for your decision.";
+			ctx.ui.notify(`${kind}\n\n${todoSummary(todo)}\n\nUse /workflow review.`, record.review!.verdict === "approve" ? "info" : "warning");
 		} catch (error) {
 			todo.status = "failed";
 			todo.error = error instanceof Error ? error.message : String(error);

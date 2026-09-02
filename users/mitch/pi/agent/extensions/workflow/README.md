@@ -10,6 +10,7 @@ conversational planning
   → reviewer (fresh, read-only context)
   → one automatic revision when requested
   → human acceptance
+     ↳ feedback → implementer → reviewer (repeat as needed)
   → next todo
 ```
 
@@ -30,7 +31,7 @@ A todo is complete only after review and explicit human approval.
 | `/workflow review` | Show the current checkpoint and approval menu |
 | `/workflow approve` | Approve the current todo and start the next |
 | `/workflow feedback [text]` | Request a revision followed by another review |
-| `/workflow diff [step]` | Show the todo-specific Git diff |
+| `/workflow diff [step]` | Show the latest revision's todo-specific Git diff |
 | `/workflow pause` / `resume` | Pause or resume orchestration |
 | `/workflow abort` | Abort the current todo |
 | `/workflow roles` | Show resolved roles, skills, and diagnostics |
@@ -133,7 +134,7 @@ Every implementer and reviewer is a fresh pi JSON-mode subprocess launched with:
 - `--no-context-files`
 - the role's required configured model and thinking level
 
-The implementer receives only its role, selected primary skill, current todo, relevant paths, concise prerequisite handoffs, and revision feedback. The reviewer receives its role, the selected primary skill, the todo-specific diff, implementation summary, and validation results. Reviewer tools exclude `edit`, `write`, and `bash`.
+The implementer receives only its role, selected primary skill, current todo, relevant paths, concise prerequisite handoffs, and revision feedback. The reviewer receives its role, the selected primary skill, the latest human feedback, the revision-specific diff, implementation summary, and validation results. Human feedback remains in both roles' context through automatic review retries. Reviewer tools exclude `edit`, `write`, and `bash`.
 
 ## Git, review, and persistence
 
@@ -141,7 +142,9 @@ Todos run sequentially in the current working tree. In Git repositories, before/
 
 A reviewer returns `approve`, `request_changes`, or `escalate`. The first rejection receives one automatic revision and second review; another rejection escalates to the human checkpoint. Human feedback starts a fresh bounded cycle.
 
-Versioned session entries persist todos, primary skills, summaries, model records, review findings, and pending human approval.
+Every acceptance checkpoint summary includes the chronological history for that todo: human feedback followed by the implementer and reviewer response for each revision, plus the files changed in each revision. This history is retained across session restarts, so later feedback rounds do not hide earlier summaries. The reviewer, Inspect todo diff, and `/workflow diff` use only the latest revision's diff; earlier per-revision diffs remain persisted in workflow state. Use Git outside the workflow for the cumulative todo change.
+
+Versioned session entries persist todos, primary skills, chronological revision summaries, model records, review findings, and pending human approval.
 
 ## Security
 
