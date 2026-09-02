@@ -10,6 +10,7 @@ function skill(name: string): MarkdownContent {
 
 function content(): WorkflowContent {
 	return {
+		planner: "Planner prompt",
 		roles: {
 			implementer: { name: "implementer", body: "Implementer prompt", filePath: "/roles/implementer.md", source: "bundled" },
 			reviewer: { name: "reviewer", body: "Reviewer prompt", filePath: "/roles/reviewer.md", source: "bundled" },

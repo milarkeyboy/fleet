@@ -60,6 +60,11 @@ Plan:
 `.trim();
 }
 
-export function appendPlanFormatInstructions(systemPrompt: string, skills: Record<string, MarkdownContent> = {}): string {
-	return `${systemPrompt}\n\n${planFormatInstructions(skills)}`;
+export function appendPlanningInstructions(
+	systemPrompt: string,
+	plannerPrompt: string,
+	skills: Record<string, MarkdownContent> = {},
+): string {
+	const planning = [plannerPrompt.trim(), planFormatInstructions(skills)].filter(Boolean).join("\n\n");
+	return `${systemPrompt}\n\n${planning}`;
 }

@@ -34,8 +34,7 @@ A todo is complete only after review and explicit human approval.
 | `/workflow pause` / `resume` | Pause or resume orchestration |
 | `/workflow abort` | Abort the current todo |
 | `/workflow roles` | Show resolved roles, skills, and diagnostics |
-| `/workflow reload` | Reload Markdown customizations |
-| `/workflow init` | Copy portable placeholders into the project |
+| `/workflow init` | Copy portable role placeholders into the project |
 | `/workflow clear` | Clear workflow state |
 
 `pi --workflow` starts with workflow planning enabled.
@@ -58,7 +57,9 @@ The exact model and thinking level used are recorded with each implementation an
 
 ## Planning and optional skills
 
-Planning uses the top-level session's selected model, conversation, context files, and normal system prompt. The extension adds only plan-format instructions and the names and descriptions of currently discovered skills. Planning remains read-only, with `workflow_questionnaire` available for important decisions.
+Planning uses the top-level session's selected model, conversation, context files, and normal system prompt. While planning is active, the extension appends the bundled `content/planner.md`, plan-format instructions, and the names and descriptions of currently discovered skills. The planner Markdown defines how work should be divided into cohesive, independently reviewable todos. Planning remains read-only, with `workflow_questionnaire` available for important decisions.
+
+The prompt is attached to the system prompt for each planning run rather than inserted as a session message, so toggling or inspecting the workflow does not accumulate copies in conversation context. Use Pi's `/reload` after editing the bundled planner.
 
 Final plans use numbered todos under `Plan:`. A todo may carry one primary skill tag, but tags are optional:
 
@@ -144,4 +145,4 @@ Versioned session entries persist todos, primary skills, summaries, model record
 
 ## Security
 
-Repository-controlled roles and skills are instructions and may include executable helpers. Project content is loaded only for trusted projects. Review shared Markdown before use. Implementers have normal write and shell tools; reviewers are hard-limited to read/search tools.
+Repository-controlled planner prompts, roles, and skills are instructions and may include executable helpers. Project content is loaded only for trusted projects. Review shared Markdown before use. Implementers have normal write and shell tools; reviewers are hard-limited to read/search tools.

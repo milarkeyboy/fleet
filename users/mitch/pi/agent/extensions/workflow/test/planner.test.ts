@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { MarkdownContent } from "../content.ts";
-import { appendPlanFormatInstructions, extractWorkflowTodos, planFormatInstructions, resolveSkillTag } from "../planner.ts";
+import { appendPlanningInstructions, extractWorkflowTodos, planFormatInstructions, resolveSkillTag } from "../planner.ts";
 
 function skill(name: string, description = `${name} guidance`): MarkdownContent {
 	return { name, description, body: "", filePath: `/skills/${name}/SKILL.md`, source: "user" };
@@ -32,10 +32,11 @@ test("does not alias old or shorthand skill names", () => {
 	assert.equal(todo.skillRequest, "cpp-development");
 });
 
-test("planning instructions advertise discovered skills and permit untagged work", () => {
+test("planning instructions include decomposition guidance and the plan format", () => {
 	const normalPrompt = "Normal pi prompt\n\nContext file: AGENTS.md";
+	const plannerPrompt = "# Planner\n\nCreate independently reviewable todos.";
 	const instructions = planFormatInstructions(skills);
-	assert.equal(appendPlanFormatInstructions(normalPrompt, skills), `${normalPrompt}\n\n${instructions}`);
+	assert.equal(appendPlanningInstructions(normalPrompt, plannerPrompt, skills), `${normalPrompt}\n\n${plannerPrompt}\n\n${instructions}`);
 	assert.match(instructions, /Produce the final plan under exactly "Plan:"/);
 	assert.match(instructions, /Tags are optional/);
 	assert.match(instructions, /Use exact skill names/);

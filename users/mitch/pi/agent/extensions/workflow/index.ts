@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { discoverWorkflowContent, scaffoldWorkflowRoles, type WorkflowContent } from "./content.ts";
 import { createWorkflowSubprocessModelRegistry, formatWorkflowModels, isProviderModel, isWorkflowRole, isWorkflowThinkingLevel, loadWorkflowModelConfig, requireExecutableWorkflowModels, setWorkflowRoleModel, workflowConfigPath, WORKFLOW_THINKING_LEVELS } from "./config.ts";
 import { WorkflowOrchestrator } from "./orchestrator.ts";
-import { appendPlanFormatInstructions, extractWorkflowTodos, resolveSkillTag } from "./planner.ts";
+import { appendPlanningInstructions, extractWorkflowTodos, resolveSkillTag } from "./planner.ts";
 import { isReadOnlyPlanningCommand } from "./safety.ts";
 import { cloneState, createWorkflowState, currentTodo, isWorkflowComplete, restoreState, type WorkflowState } from "./state.ts";
 import { clearWorkflowUi, todoSummary, updateWorkflowUi } from "./ui.ts";
@@ -35,7 +35,7 @@ function helpText(): string {
 		"/workflow skills — list discovered Agent Skills",
 		"/workflow skill <step> <name|none> — assign or clear a primary skill",
 		"/workflow pause|resume|abort — control execution",
-		"/workflow roles|reload — inspect/reload Markdown content",
+		"/workflow roles — inspect Markdown content",
 		"/workflow init — scaffold portable workflow roles in .agents/",
 		"/workflow clear — clear workflow state",
 	].join("\n");
@@ -215,10 +215,6 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				if (command === "off") return disablePlanning(ctx);
 				if (command === "help") return ctx.ui.notify(helpText(), "info");
 				if (command === "init") return await scaffold(ctx);
-				if (command === "reload") {
-					const found = reloadContent(ctx);
-					return ctx.ui.notify(`Workflow roles and skills reloaded.${found.diagnostics.length ? `\n${found.diagnostics.join("\n")}` : ""}`, found.diagnostics.length ? "warning" : "info");
-				}
 				if (command === "roles") {
 					const found = getContent(ctx);
 					return ctx.ui.notify([
@@ -310,7 +306,8 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", async (event, ctx) => {
 		if (!state.planning) return;
 		if (!state.goal && event.prompt.trim()) state.goal = event.prompt.trim();
-		return { systemPrompt: appendPlanFormatInstructions(event.systemPrompt, getContent(ctx).skills) };
+		const found = getContent(ctx);
+		return { systemPrompt: appendPlanningInstructions(event.systemPrompt, found.planner, found.skills) };
 	});
 
 	pi.on("agent_end", async (event, ctx) => {

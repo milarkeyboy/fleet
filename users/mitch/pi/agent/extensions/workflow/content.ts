@@ -22,6 +22,7 @@ export interface WorkflowRoleContent {
 }
 
 export interface WorkflowContent {
+	planner: string;
 	roles: Record<"implementer" | "reviewer", WorkflowRoleContent>;
 	skills: Record<string, MarkdownContent>;
 	diagnostics: string[];
@@ -143,6 +144,7 @@ export function discoverWorkflowContent(cwd: string, projectTrusted: boolean, ho
 		{ filePath: rolePath(userAgents, role), source: "user" as const },
 		...(projectAgents ? [{ filePath: rolePath(projectAgents, role), source: "project" as const }] : []),
 	];
+	const planner = readFileSync(path.join(bundled, "planner.md"), "utf8");
 	const roles = {
 		implementer: resolveRole("implementer", roleSources("implementer")),
 		reviewer: resolveRole("reviewer", roleSources("reviewer")),
@@ -161,7 +163,7 @@ export function discoverWorkflowContent(cwd: string, projectTrusted: boolean, ho
 		}
 	}
 
-	return { roles, skills: Object.fromEntries(skills), diagnostics, projectAgentsDir: projectAgents };
+	return { planner, roles, skills: Object.fromEntries(skills), diagnostics, projectAgentsDir: projectAgents };
 }
 
 export function listMarkdownFiles(root: string): string[] {

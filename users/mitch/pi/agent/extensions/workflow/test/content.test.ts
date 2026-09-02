@@ -17,15 +17,18 @@ test("parses standard Agent Skill frontmatter", () => {
 	assert.equal(parsed.body.trim(), "Hello");
 });
 
-test("bundled shared Markdown contains only plain role prompts", async () => {
+test("bundled shared Markdown contains only plain workflow prompts", async () => {
 	const root = bundledContentRoot();
 	const files = listMarkdownFiles(root).map((file) => path.relative(root, file).replaceAll(path.sep, "/")).sort();
 
-	assert.deepEqual(files, ["roles/implementer.md", "roles/reviewer.md"]);
+	assert.deepEqual(files, ["planner.md", "roles/implementer.md", "roles/reviewer.md"]);
 	for (const file of files) {
 		const markdown = await readFile(path.join(root, file), "utf8");
 		assert.equal(markdown.startsWith("---\n"), false, `${file} must be a plain Markdown prompt`);
 	}
+	const planner = await readFile(path.join(root, "planner.md"), "utf8");
+	assert.match(planner, /implemented and reviewed in isolation/);
+	assert.match(planner, /Do not create standalone todos/);
 });
 
 test("scaffolds only workflow role prompts", async () => {
@@ -61,6 +64,7 @@ test("discovers user skills and applies trusted project precedence", async () =>
 	await writeFile(path.join(project, ".agents", "skills", "nested", "rust", "SKILL.md"), "---\nname: rust\ndescription: project rust\n---\nProject Rust");
 	try {
 		const content = discoverWorkflowContent(project, true, home);
+		assert.match(content.planner, /^# Workflow Planner Guidance/);
 		assert.equal(content.roles.implementer.source, "project");
 		assert.match(content.roles.implementer.body, /^# Project implementer/);
 		assert.equal(content.roles.reviewer.source, "bundled");
