@@ -17,3 +17,6 @@ description: Implementing Python code.
 - Rely on callers of functions providing correct types when they're annotated.
   Don't waste energy on checking the types of values in case a caller has
   ignored the annotations.
+- Don't consider passing invalid types in writing unit tests. If a caller
+  ignores the type hints, then it can simply be left as undefined behaviour.
+  Focus instead on invalid values within those type boundaries.
