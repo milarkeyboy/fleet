@@ -19,3 +19,15 @@ given task.
 
 If work requires the existing codebase to be refactored in some manner, then
 aim to perform the refactoring as its own set of todos prior to said work.
+
+## Break By Default
+
+Unless explicitly asked, make breaking changes to keep the codebase as small as
+possible. Don't keep existing features alive if they're in conflict with the
+newly requested changes.
+
+## YAGNI
+
+Take a "you ain't gonna need it" approach. Only plan for the feature(s) or
+change(s) being requested. Avoid unnecessary customisation points or
+"nice-to-haves".

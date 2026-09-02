@@ -9,3 +9,11 @@ description: Implementing Python code.
 
 - Prefer `pathlib` over `os` for filesystem manipulation.
 - Use the built-in unittest to enable patching and mocking where needed.
+
+## Typing
+
+- Using type annotations where possible.
+- Newly written code shall pass pyright type checks.
+- Rely on callers of functions providing correct types when they're annotated.
+  Don't waste energy on checking the types of values in case a caller has
+  ignored the annotations.
