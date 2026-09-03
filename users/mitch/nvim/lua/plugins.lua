@@ -29,6 +29,7 @@ require("telescope").setup({
   defaults = {
     layout_strategy = "flex",
     sorting_strategy = "ascending",
+    mappings = require("keymaps").telescope,
   },
 })
 

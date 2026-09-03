@@ -12,11 +12,7 @@ vim.g.mapleader = " "
 require("plugins")
 
 -- Keymaps
-vim.keymap.set("n", "<leader>e", "<cmd>NvimTreeToggle<CR>", { desc = "Explorer" })
-
-vim.keymap.set("n", "<leader>f", "<cmd>Telescope find_files<CR>", { desc = "Find files" })
-vim.keymap.set("n", "<leader>g", "<cmd>Telescope live_grep<CR>", { desc = "Grep" })
-vim.keymap.set("n", "<leader>s", "<cmd>Telescope lsp_document_symbols<CR>", { desc = "Symbols (buffer)" })
+require("keymaps").setup()
 
 -- LSP setup
 require("lsp")
