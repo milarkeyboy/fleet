@@ -10,9 +10,10 @@ import { isReadOnlyPlanningCommand } from "./safety.ts";
 import { cloneState, createWorkflowState, currentTodo, isWorkflowComplete, latestRevision, restoreState, type WorkflowState, type WorkflowTodo } from "./state.ts";
 import { clearWorkflowUi, formatWorkflowDiff, todoSummary, updateWorkflowUi } from "./ui.ts";
 
-const ENTRY_TYPE = "workflow-state-v3";
+const ENTRY_TYPE = "workflow-state-v4";
+const PREVIOUS_ENTRY_TYPE = "workflow-state-v3";
+const OLDER_ENTRY_TYPE = "workflow-state-v2";
 const LEGACY_ENTRY_TYPE = "workflow-state-v1";
-const PREVIOUS_ENTRY_TYPE = "workflow-state-v2";
 const QUESTIONNAIRE_TOOL = "workflow_questionnaire";
 const DIFF_MESSAGE_TYPE = "workflow-diff";
 const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls", QUESTIONNAIRE_TOOL];
@@ -27,7 +28,7 @@ function textOf(message: any): string {
 function helpText(): string {
 	return [
 		"/workflow [on|off] — toggle conversational workflow planning",
-		"/workflow execute — start or continue sequential delegation",
+		"/workflow execute [step] — start, continue, or force execution from a later todo",
 		"/workflow status|todos — inspect workflow state",
 		"/workflow models — inspect implementer and reviewer model configuration",
 		"/workflow model <implementer|reviewer> <provider/model> [thinking-level] — configure a role model",
@@ -110,10 +111,10 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		if (notify) ctx.ui.notify("Workflow planning disabled.", "info");
 	}
 
-	async function resolveUnknownSkillRequests(ctx: ExtensionContext): Promise<void> {
+	async function resolveUnknownSkillRequests(ctx: ExtensionContext, todos = state.todos): Promise<void> {
 		if (!ctx.hasUI) return;
 		const skills = Object.values(getContent(ctx).skills).sort((a, b) => a.name.localeCompare(b.name));
-		for (const todo of state.todos.filter((item) => item.skillRequest)) {
+		for (const todo of todos.filter((item) => item.skillRequest)) {
 			const options = ["No primary skill", ...skills.map((skill) => `${skill.name} — ${skill.description}`)];
 			const selected = await ctx.ui.select(`Unknown Agent Skill [${todo.skillRequest}] on todo ${todo.step}: ${todo.text}`, options);
 			if (!selected) continue;
@@ -149,7 +150,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		persist();
 		update(ctx);
 		if (isWorkflowComplete(state)) {
-			ctx.ui.notify("Workflow complete. Every todo has implementer, reviewer, and human approval.", "info");
+			ctx.ui.notify("Workflow complete. Every todo is approved or completed manually.", "info");
 			return;
 		}
 		ctx.ui.notify(`Todo ${todo.step} approved. Starting the next todo.`, "info");
@@ -288,11 +289,16 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 					return ctx.ui.notify(`Todo ${step} assigned to ${skill}.`, "info");
 				}
 				if (command === "execute") {
-					await resolveUnknownSkillRequests(ctx);
-					const unresolved = state.todos.find((todo) => todo.skillRequest);
-					if (unresolved) throw new Error(`Todo ${unresolved.step} requests unknown Agent Skill "${unresolved.skillRequest}". Use /workflow skill ${unresolved.step} <name|none>.`);
+					if (rest.length > 1 || (rest[0] !== undefined && !/^\d+$/.test(rest[0]))) throw new Error("Usage: /workflow execute [step]");
+					const targetStep = rest[0] === undefined ? undefined : Number(rest[0]);
+					const target = targetStep === undefined ? undefined : state.todos.find((todo) => todo.step === targetStep);
+					await resolveUnknownSkillRequests(ctx, targetStep === undefined ? state.todos : target ? [target] : []);
+					const unresolvedTodo = targetStep === undefined
+						? state.todos.find((todo) => todo.skillRequest)
+						: target?.skillRequest ? target : undefined;
+					if (unresolvedTodo) throw new Error(`Todo ${unresolvedTodo.step} requests unknown Agent Skill "${unresolvedTodo.skillRequest}". Use /workflow skill ${unresolvedTodo.step} <name|none>.`);
 					if (state.planning) disablePlanning(ctx, false);
-					return await orchestrator.execute(ctx);
+					return targetStep === undefined ? await orchestrator.execute(ctx) : await orchestrator.executeFrom(ctx, targetStep);
 				}
 				if (command === "review") return await reviewCurrent(ctx);
 				if (command === "approve") return await approveCurrent(ctx);
@@ -343,7 +349,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		const saved = ctx.sessionManager.getEntries().filter((entry: any) => entry.type === "custom" && (entry.customType === ENTRY_TYPE || entry.customType === PREVIOUS_ENTRY_TYPE || entry.customType === LEGACY_ENTRY_TYPE)).pop() as { data?: unknown } | undefined;
+		const saved = ctx.sessionManager.getEntries().filter((entry: any) => entry.type === "custom" && (entry.customType === ENTRY_TYPE || entry.customType === PREVIOUS_ENTRY_TYPE || entry.customType === OLDER_ENTRY_TYPE || entry.customType === LEGACY_ENTRY_TYPE)).pop() as { data?: unknown } | undefined;
 		state = restoreState(saved?.data) ?? createWorkflowState();
 		if (pi.getFlag("workflow") === true) state.planning = true;
 		reloadContent(ctx);

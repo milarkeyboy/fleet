@@ -14,7 +14,7 @@ conversational planning
   → next todo
 ```
 
-A todo is complete only after review and explicit human approval.
+A todo is complete after review and explicit human approval, or when the user explicitly marks it completed manually by forcing execution from a later todo.
 
 ## Commands
 
@@ -22,7 +22,7 @@ A todo is complete only after review and explicit human approval.
 |---|---|
 | `/workflow` or `/workflow on` | Enable conversational, read-only workflow planning |
 | `/workflow off` | Leave planning without executing |
-| `/workflow execute` | Execute the accepted plan |
+| `/workflow execute [step]` | Execute the accepted plan, or cancel the active run and continue from a later pending todo |
 | `/workflow status` / `todos` | Show todo state and optional skill assignments |
 | `/workflow skills` | List discovered Agent Skills |
 | `/workflow skill N NAME\|none` | Assign or clear a todo's primary skill |
@@ -133,7 +133,7 @@ Every implementer and reviewer is a fresh pi JSON-mode subprocess launched with:
 - `--no-prompt-templates`
 - the role's required configured model and thinking level
 
-Subagents retain Pi's normal context-file discovery, including applicable user and project `AGENTS.md` files. Both roles receive the ordered workflow plan with each todo marked as approved, current, upcoming, or aborted. The plan is a scope boundary: implementers must not absorb upcoming work, and reviewers must flag scope leakage without requesting work assigned to later todos.
+Subagents retain Pi's normal context-file discovery, including applicable user and project `AGENTS.md` files. Both roles receive the ordered workflow plan with each todo marked as approved, completed manually, current, upcoming, or aborted. The plan is a scope boundary: implementers must not absorb upcoming work, and reviewers must flag scope leakage without requesting work assigned to later todos.
 
 In addition, the implementer receives its role, selected primary skill, current todo, relevant paths, concise prerequisite handoffs, and revision feedback. The reviewer receives its role, the selected primary skill, the latest human feedback, the revision-specific diff, implementation summary, and validation results. Explicit human revision requirements can override the plan boundary and remain in both roles' context through automatic review retries. Reviewer tools exclude `edit`, `write`, and `bash`.
 
@@ -141,11 +141,13 @@ In addition, the implementer receives its role, selected primary skill, current 
 
 Todos run sequentially in the current working tree. In Git repositories, before/after snapshots use a temporary index and include tracked and untracked non-ignored files without changing the real index or worktree. Outside Git, execution still works but per-todo diffs are unavailable.
 
+`/workflow execute N` forces execution from later pending todo `N`. Any unfinished earlier todos are persisted as `completed-manually`, the active implementer or reviewer is terminated, and execution starts at `N` after subprocess cleanup. This is intended for changes made directly by the user; manually completed todos remain visible to later subagents but have no generated implementation handoff.
+
 A reviewer returns `approve`, `request_changes`, or `escalate`. The first rejection receives one automatic revision and second review; another rejection escalates to the human checkpoint. Human feedback starts a fresh bounded cycle.
 
 Every acceptance checkpoint summary includes the chronological history for that todo: human feedback followed by the implementer and reviewer response for each revision, plus the files changed in each revision. This history is retained across session restarts, so later feedback rounds do not hide earlier summaries. The reviewer, Inspect todo diff, and `/workflow diff` use only the latest revision's diff; earlier per-revision diffs remain persisted in workflow state. Use Git outside the workflow for the cumulative todo change.
 
-Versioned session entries persist todos, primary skills, chronological revision summaries, model records, review findings, and pending human approval.
+Versioned session entries persist todos, primary skills, chronological revision summaries, model records, review findings, pending human approval, and manual completion state.
 
 ## Security
 

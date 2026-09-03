@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatWorkflowDiff, todoSummary } from "../ui.ts";
+import { formatWorkflowDiff, todoSummary, updateWorkflowUi } from "../ui.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { WorkflowTodo } from "../state.ts";
+import { createWorkflowState, type WorkflowTodo } from "../state.ts";
 
 test("todo summaries show optional skills and actual role models", () => {
 	const todo: WorkflowTodo = {
@@ -47,6 +47,24 @@ test("todo summaries preserve implementer and reviewer responses for each round"
 	assert.ok(summary.indexOf("first review") < summary.indexOf("Please address the finding."));
 	assert.ok(summary.indexOf("Please address the finding.") < summary.indexOf("second implementation"));
 	assert.ok(summary.indexOf("second implementation") < summary.indexOf("second review"));
+});
+
+test("manually completed todos count as done and use a distinct widget marker", () => {
+	const state = createWorkflowState();
+	state.currentStep = 2;
+	state.todos = [
+		{ step: 1, text: "Manual task", status: "completed-manually", attempts: 0, automaticReviewCycles: 0, revisions: [] },
+		{ step: 2, text: "Pending task", status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] },
+	];
+	let status = "";
+	let widget: string[] = [];
+	updateWorkflowUi({ ui: {
+		theme: { fg: (_color: string, text: string) => text },
+		setStatus: (_key: string, value: string) => { status = value; },
+		setWidget: (_key: string, value: string[]) => { widget = value; },
+	} } as any, state);
+	assert.match(status, /Workflow 1\/2/);
+	assert.match(widget[0], /^✓\* 1\./);
 });
 
 test("workflow diffs use native diff colors without styling file headers as changes", () => {

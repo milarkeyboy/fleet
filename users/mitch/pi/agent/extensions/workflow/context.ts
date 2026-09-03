@@ -1,13 +1,14 @@
 import type { MarkdownContent, WorkflowContent, WorkflowRoleContent } from "./content.ts";
 import { extractRelevantFiles } from "./planner.ts";
-import { cumulativeRevision, latestRevision, type ImplementationResult, type ReviewResult, type WorkflowState, type WorkflowTodo } from "./state.ts";
+import { cumulativeRevision, isTodoComplete, latestRevision, type ImplementationResult, type ReviewResult, type WorkflowState, type WorkflowTodo } from "./state.ts";
 
 function dependencyHandoffs(state: WorkflowState, todo: WorkflowTodo): string {
 	const prior = state.todos
-		.filter((item) => item.step < todo.step && item.status === "approved" && cumulativeRevision(item)?.implementation)
+		.filter((item) => item.step < todo.step && isTodoComplete(item))
 		.map((item) => {
 			const revision = cumulativeRevision(item);
-			return `- Todo ${item.step}: ${revision?.implementation?.summary}\n  Files: ${revision?.changedFiles.join(", ") || "none"}`;
+			if (item.status === "completed-manually") return `- Todo ${item.step}: Completed manually; inspect the current worktree for its changes.`;
+			return `- Todo ${item.step}: ${revision?.implementation?.summary ?? "Approved without a recorded implementation summary."}\n  Files: ${revision?.changedFiles.join(", ") || "none"}`;
 		});
 	return prior.length ? prior.join("\n") : "- None";
 }
@@ -38,9 +39,11 @@ function workflowPlan(state: WorkflowState, current: WorkflowTodo): string {
 			? "current"
 			: todo.status === "approved"
 				? "approved"
-				: todo.status === "aborted"
-					? "aborted"
-					: "upcoming";
+				: todo.status === "completed-manually"
+					? "completed-manually"
+					: todo.status === "aborted"
+						? "aborted"
+						: "upcoming";
 		return `${todo.step}. [${status}] ${todo.text}`;
 	}).join("\n");
 }
@@ -78,7 +81,7 @@ ${todoHeading(todo)}
 Relevant files named by the plan:
 ${relevant.length ? relevant.map((file) => `- ${file}`).join("\n") : "- Discover the minimum relevant files."}
 
-Approved prerequisite handoffs:
+Completed prerequisite handoffs:
 ${dependencyHandoffs(state, todo)}
 ${humanFeedback ? `\nHuman revision requirements (take precedence if prior review findings conflict):\n${humanFeedback}` : ""}
 ${reviewerFeedback ? `\nLatest reviewer findings:\n- ${reviewerFeedback}` : ""}`;

@@ -107,6 +107,16 @@ test("implementers and reviewers receive the ordered workflow plan and scope bou
 	assert.match(review.systemPrompt, /override the plan boundary when explicit/);
 });
 
+test("later implementers are told when prerequisite todos were completed manually", () => {
+	const manual = todo();
+	Object.assign(manual, { step: 1, text: "Manual prerequisite", status: "completed-manually", revisions: [] });
+	const current = todo();
+	Object.assign(current, { step: 2, text: "Continue work", status: "implementing" });
+	const invocation = implementerInvocation(stateWith(manual, current), current, content());
+	assert.match(invocation.task, /1\. \[completed-manually\] Manual prerequisite/);
+	assert.match(invocation.task, /Todo 1: Completed manually; inspect the current worktree/);
+});
+
 test("reviewers receive only the current revision files and diff", () => {
 	const reviewed = todo();
 	reviewed.revisions = [

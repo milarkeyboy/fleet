@@ -1,5 +1,5 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { currentTodo, isWorkflowComplete, type WorkflowState, type WorkflowTodo } from "./state.ts";
+import { currentTodo, isTodoComplete, isWorkflowComplete, type WorkflowState, type WorkflowTodo } from "./state.ts";
 
 const STATUS_KEY = "workflow-status";
 const WIDGET_KEY = "workflow-todos";
@@ -11,6 +11,7 @@ const ICONS: Record<string, string> = {
 	revising: "↻",
 	"awaiting-user": "?",
 	approved: "✓",
+	"completed-manually": "✓*",
 	failed: "!",
 	aborted: "×",
 };
@@ -26,7 +27,7 @@ export function updateWorkflowUi(ctx: ExtensionContext, state: WorkflowState): v
 	} else if (isWorkflowComplete(state)) {
 		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("success", `Workflow: ${state.todos.length}/${state.todos.length} ✓`));
 	} else {
-		const done = state.todos.filter((todo) => todo.status === "approved").length;
+		const done = state.todos.filter(isTodoComplete).length;
 		const todo = currentTodo(state);
 		const label = state.paused ? "paused" : todo?.status ?? "ready";
 		const color = label === "failed" ? "error" : label === "awaiting-user" ? "warning" : "accent";
@@ -37,7 +38,7 @@ export function updateWorkflowUi(ctx: ExtensionContext, state: WorkflowState): v
 		const icon = ICONS[todo.status] ?? "·";
 		const skill = todo.primarySkill ? `[${todo.primarySkill}] ` : "";
 		const request = todo.skillRequest ? `[unknown: ${todo.skillRequest}] ` : "";
-		if (todo.status === "approved") return ctx.ui.theme.fg("success", `${icon} ${todo.step}. `) + ctx.ui.theme.fg("muted", `${skill}${request}${todo.text}`);
+		if (isTodoComplete(todo)) return ctx.ui.theme.fg("success", `${icon} ${todo.step}. `) + ctx.ui.theme.fg("muted", `${skill}${request}${todo.text}`);
 		if (todo.status === "failed") return ctx.ui.theme.fg("error", `${icon} ${todo.step}. ${skill}${request}${todo.text}`);
 		if (todo.status === "awaiting-user") return ctx.ui.theme.fg("warning", `${icon} ${todo.step}. ${skill}${request}${todo.text}`);
 		return ctx.ui.theme.fg("muted", `${icon} ${todo.step}. `) + `${skill}${request}${todo.text}`;

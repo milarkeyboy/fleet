@@ -7,6 +7,7 @@ export type WorkflowTodoStatus =
 	| "revising"
 	| "awaiting-user"
 	| "approved"
+	| "completed-manually"
 	| "failed"
 	| "aborted";
 
@@ -60,7 +61,7 @@ export interface WorkflowTodo {
 }
 
 export interface WorkflowState {
-	version: 3;
+	version: 4;
 	planning: boolean;
 	executing: boolean;
 	paused: boolean;
@@ -75,7 +76,7 @@ export interface WorkflowState {
 export function createWorkflowState(): WorkflowState {
 	const now = Date.now();
 	return {
-		version: 3,
+		version: 4,
 		planning: false,
 		executing: false,
 		paused: false,
@@ -85,20 +86,37 @@ export function createWorkflowState(): WorkflowState {
 	};
 }
 
+export function isTodoComplete(todo: WorkflowTodo): boolean {
+	return todo.status === "approved" || todo.status === "completed-manually";
+}
+
+function isTodoTerminal(todo: WorkflowTodo): boolean {
+	return isTodoComplete(todo) || todo.status === "aborted";
+}
+
 export function currentTodo(state: WorkflowState): WorkflowTodo | undefined {
 	if (state.currentStep != null) {
 		const selected = state.todos.find((todo) => todo.step === state.currentStep);
-		if (selected && selected.status !== "approved" && selected.status !== "aborted") return selected;
+		if (selected && !isTodoTerminal(selected)) return selected;
 	}
-	return state.todos.find((todo) => todo.status !== "approved" && todo.status !== "aborted");
+	return state.todos.find((todo) => !isTodoTerminal(todo));
 }
 
 export function nextPendingTodo(state: WorkflowState): WorkflowTodo | undefined {
 	return state.todos.find((todo) => todo.status === "pending");
 }
 
+export function completeTodosManuallyBefore(state: WorkflowState, targetStep: number): WorkflowTodo[] {
+	const completed = state.todos.filter((todo) => todo.step < targetStep && !isTodoTerminal(todo));
+	for (const todo of completed) {
+		todo.status = "completed-manually";
+		todo.error = undefined;
+	}
+	return completed;
+}
+
 export function isWorkflowComplete(state: WorkflowState): boolean {
-	return state.todos.length > 0 && state.todos.every((todo) => todo.status === "approved");
+	return state.todos.length > 0 && state.todos.every(isTodoComplete);
 }
 
 export function latestRevision(todo: WorkflowTodo): WorkflowRevision | undefined {
@@ -187,12 +205,12 @@ function migrateTodo(value: unknown, legacy: boolean): WorkflowTodo | undefined 
 export function restoreState(value: unknown): WorkflowState | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const candidate = value as Record<string, unknown>;
-	if ((candidate.version !== 1 && candidate.version !== 2 && candidate.version !== 3) || !Array.isArray(candidate.todos)) return undefined;
+	if ((candidate.version !== 1 && candidate.version !== 2 && candidate.version !== 3 && candidate.version !== 4) || !Array.isArray(candidate.todos)) return undefined;
 	const todos = candidate.todos.map((todo) => migrateTodo(todo, candidate.version === 1)).filter((todo): todo is WorkflowTodo => Boolean(todo));
 	return {
 		...createWorkflowState(),
 		...candidate,
-		version: 3,
+		version: 4,
 		todos,
 	} as WorkflowState;
 }
