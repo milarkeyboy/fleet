@@ -8,13 +8,13 @@ function options(skillPaths: string[]) {
 	};
 }
 
-test("subagent arguments isolate extensions, context, and selected skills", () => {
+test("subagent arguments isolate extensions and skills while loading context files", () => {
 	const args = buildAgentArgs(options(["/skills/rust/SKILL.md", "/skills/testing/SKILL.md"]), "/tmp/role.md");
 	assert.ok(args.includes("--no-extensions"));
 	assert.deepEqual(args.slice(args.indexOf("-e"), args.indexOf("-e") + 2), ["-e", BASH_POLICY_EXTENSION_PATH]);
 	assert.equal(args.filter((arg) => arg === "-e").length, 1);
 	assert.ok(args.includes("--no-skills"));
-	assert.ok(args.includes("--no-context-files"));
+	assert.equal(args.includes("--no-context-files"), false);
 	assert.equal(args.filter((arg) => arg === "--skill").length, 2);
 	assert.ok(args.includes("/skills/rust/SKILL.md"));
 	assert.ok(args.includes("/skills/testing/SKILL.md"));

@@ -152,7 +152,7 @@ export class WorkflowOrchestrator {
 
 			todo.status = "reviewing";
 			this.changed(ctx);
-			const reviewInvocation = reviewerInvocation(todo, content);
+			const reviewInvocation = reviewerInvocation(this.state, todo, content);
 			const reviewRun = await runAgent({
 				cwd: ctx.cwd,
 				roleName: "workflow-reviewer",

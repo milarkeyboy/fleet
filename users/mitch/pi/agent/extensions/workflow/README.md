@@ -133,7 +133,9 @@ Every implementer and reviewer is a fresh pi JSON-mode subprocess launched with:
 - `--no-prompt-templates`
 - the role's required configured model and thinking level
 
-The implementer receives only its role, selected primary skill, current todo, relevant paths, concise prerequisite handoffs, and revision feedback. The reviewer receives its role, the selected primary skill, the latest human feedback, the revision-specific diff, implementation summary, and validation results. Human feedback remains in both roles' context through automatic review retries. Reviewer tools exclude `edit`, `write`, and `bash`.
+Subagents retain Pi's normal context-file discovery, including applicable user and project `AGENTS.md` files. Both roles receive the ordered workflow plan with each todo marked as approved, current, upcoming, or aborted. The plan is a scope boundary: implementers must not absorb upcoming work, and reviewers must flag scope leakage without requesting work assigned to later todos.
+
+In addition, the implementer receives its role, selected primary skill, current todo, relevant paths, concise prerequisite handoffs, and revision feedback. The reviewer receives its role, the selected primary skill, the latest human feedback, the revision-specific diff, implementation summary, and validation results. Explicit human revision requirements can override the plan boundary and remain in both roles' context through automatic review retries. Reviewer tools exclude `edit`, `write`, and `bash`.
 
 ## Git, review, and persistence
 

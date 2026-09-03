@@ -30,6 +30,12 @@ function todo(primarySkill?: string): WorkflowTodo {
 	};
 }
 
+function stateWith(...todos: WorkflowTodo[]) {
+	const state = createWorkflowState();
+	state.todos = todos;
+	return state;
+}
+
 test("untagged todos run without an Agent Skill", () => {
 	const invocation = implementerInvocation(createWorkflowState(), todo(), content());
 	assert.deepEqual(invocation.skillPaths, []);
@@ -39,7 +45,8 @@ test("untagged todos run without an Agent Skill", () => {
 
 test("the todo primary skill is supplied to implementers and reviewers", () => {
 	const implementation = implementerInvocation(createWorkflowState(), todo("cpp"), content());
-	const review = reviewerInvocation(todo("python"), content());
+	const reviewed = todo("python");
+	const review = reviewerInvocation(stateWith(reviewed), reviewed, content());
 	assert.deepEqual(implementation.skillPaths, ["/content/cpp/SKILL.md"]);
 	assert.deepEqual(review.skillPaths, ["/content/python/SKILL.md"]);
 });
@@ -70,13 +77,43 @@ test("implementers retain human requirements alongside later reviewer findings",
 	assert.match(invocation.task, /Human revision requirements \(take precedence/);
 });
 
+test("implementers and reviewers receive the ordered workflow plan and scope boundary", () => {
+	const approved = todo();
+	Object.assign(approved, { step: 1, text: "Prepare state", status: "approved" });
+	const current = todo();
+	Object.assign(current, { step: 2, text: "Implement current behavior", status: "implementing" });
+	const upcoming = todo();
+	Object.assign(upcoming, { step: 3, text: "Add later UI", status: "pending" });
+	const aborted = todo();
+	Object.assign(aborted, { step: 4, text: "Discarded task", status: "aborted" });
+	const state = stateWith(approved, current, upcoming, aborted);
+	const expectedPlan = [
+		"1. [approved] Prepare state",
+		"2. [current] Implement current behavior",
+		"3. [upcoming] Add later UI",
+		"4. [aborted] Discarded task",
+	].join("\n");
+
+	const implementation = implementerInvocation(state, current, content());
+	const review = reviewerInvocation(state, current, content());
+	assert.ok(implementation.task.includes(expectedPlan));
+	assert.ok(review.task.includes(expectedPlan));
+	assert.match(implementation.systemPrompt, /Do not implement work assigned to upcoming todos/);
+	assert.match(implementation.systemPrompt, /return blocked instead of absorbing future scope/);
+	assert.match(implementation.systemPrompt, /Explicit human revision requirements override this boundary/);
+	assert.match(review.systemPrompt, /Flag implementation of upcoming todos as scope leakage/);
+	assert.match(review.systemPrompt, /do not request work assigned to them/);
+	assert.match(review.systemPrompt, /escalate instead of expanding its scope/);
+	assert.match(review.systemPrompt, /override the plan boundary when explicit/);
+});
+
 test("reviewers receive only the current revision files and diff", () => {
 	const reviewed = todo();
 	reviewed.revisions = [
 		{ humanFeedback: "Preserve the public API.", implementation: { status: "completed", summary: "first", filesChanged: ["one.ts"], tests: [] }, changedFiles: ["one.ts"], diffPreview: "diff one" },
 		{ implementation: { status: "completed", summary: "second", filesChanged: ["two.ts"], tests: [] }, changedFiles: ["two.ts"], diffPreview: "diff two", cumulativeChangedFiles: ["one.ts", "two.ts"], cumulativeDiffPreview: "diff one\ndiff two" },
 	];
-	const invocation = reviewerInvocation(reviewed, content());
+	const invocation = reviewerInvocation(stateWith(reviewed), reviewed, content());
 	assert.match(invocation.systemPrompt, /Treat supplied human feedback as revision requirements/);
 	assert.match(invocation.task, /Preserve the public API\./);
 	assert.match(invocation.task, /second/);

@@ -56,7 +56,6 @@ export function buildAgentArgs(options: AgentRunOptions, promptPath: string): st
 		"--no-skills",
 		...options.skillPaths.flatMap((skillPath) => ["--skill", skillPath]),
 		"--no-prompt-templates",
-		"--no-context-files",
 		"--tools", options.tools.join(","),
 		"--append-system-prompt", promptPath,
 	];

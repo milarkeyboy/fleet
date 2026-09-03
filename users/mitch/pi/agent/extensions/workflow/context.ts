@@ -32,6 +32,19 @@ function todoHeading(todo: WorkflowTodo): string {
 	return `Todo ${todo.step}${todo.primarySkill ? ` [${todo.primarySkill}]` : ""}: ${todo.text}`;
 }
 
+function workflowPlan(state: WorkflowState, current: WorkflowTodo): string {
+	return state.todos.map((todo) => {
+		const status = todo.step === current.step
+			? "current"
+			: todo.status === "approved"
+				? "approved"
+				: todo.status === "aborted"
+					? "aborted"
+					: "upcoming";
+		return `${todo.step}. [${status}] ${todo.text}`;
+	}).join("\n");
+}
+
 function latestHumanFeedback(todo: WorkflowTodo): string | undefined {
 	return [...todo.revisions].reverse().find((revision) => revision.humanFeedback)?.humanFeedback;
 }
@@ -47,6 +60,7 @@ export function implementerInvocation(state: WorkflowState, todo: WorkflowTodo, 
 	const skills = selectedSkills(todo, content);
 	const relevant = extractRelevantFiles(todo.text);
 	const protocol = `Work only on the assigned todo. You may inspect additional files when necessary, but do not start another todo.
+The workflow plan is a scope boundary. Do not implement work assigned to upcoming todos. If the current todo cannot be completed without that work, return blocked instead of absorbing future scope. Explicit human revision requirements override this boundary.
 ${skillProtocol(skills)}
 Validate your work with focused tests or checks. Do not claim a test passed unless you ran it.
 End with exactly one machine-readable block:
@@ -55,6 +69,10 @@ End with exactly one machine-readable block:
 	const reviewerFeedback = latestReviewerFeedback(todo);
 	const task = `Goal: ${state.goal ?? "Complete the accepted workflow plan"}
 
+Workflow plan:
+${workflowPlan(state, todo)}
+
+Current assignment:
 ${todoHeading(todo)}
 
 Relevant files named by the plan:
@@ -67,7 +85,7 @@ ${reviewerFeedback ? `\nLatest reviewer findings:\n- ${reviewerFeedback}` : ""}`
 	return { systemPrompt: rolePrompt(role, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
 }
 
-export function reviewerInvocation(todo: WorkflowTodo, content: WorkflowContent) {
+export function reviewerInvocation(state: WorkflowState, todo: WorkflowTodo, content: WorkflowContent) {
 	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
 	const role = content.roles.reviewer;
 	const skills = selectedSkills(todo, content);
@@ -75,13 +93,18 @@ export function reviewerInvocation(todo: WorkflowTodo, content: WorkflowContent)
 	if (!result?.implementation) throw new Error(`Todo ${todo.step} has no implementation to review.`);
 	const implementation = result.implementation;
 	const protocol = `You are read-only: do not edit or create files. Review only the assigned todo and supplied todo-specific diff.
+The workflow plan is a scope boundary. Flag implementation of upcoming todos as scope leakage, and do not request work assigned to them. If the current todo cannot be completed without upcoming work, escalate instead of expanding its scope.
 ${skillProtocol(skills)}
 Apply the selected skills' review guidance where relevant.
-Treat supplied human feedback as revision requirements. Escalate if it conflicts with the original todo or cannot be satisfied safely.
+Treat supplied human feedback as revision requirements that override the plan boundary when explicit. Escalate if it conflicts with the original todo or cannot be satisfied safely.
 A request_changes verdict must contain concrete, actionable findings. Use escalate for ambiguity requiring a human decision.
 End with exactly one machine-readable block:
 <workflow-review>{"verdict":"approve|request_changes|escalate","summary":"...","findings":["..."]}</workflow-review>`;
-	const task = `${todoHeading(todo)}
+	const task = `Workflow plan:
+${workflowPlan(state, todo)}
+
+Current assignment:
+${todoHeading(todo)}
 
 Human feedback governing this revision:
 ${latestHumanFeedback(todo) ?? "(none)"}
