@@ -20,7 +20,7 @@ function M.setup()
   vim.keymap.set("n", "<leader>f", function() telescope_builtin.find_files({ hidden = true }) end, { desc = "Find files" })
   vim.keymap.set("n", "<leader>g", telescope_builtin.live_grep, { desc = "Grep" })
   vim.keymap.set("n", "<leader>s", telescope_builtin.lsp_document_symbols, { desc = "Symbols (buffer)" })
-  vim.keymap.set("n", "<leader>S", telescope_builtin.lsp_workspace_symbols, { desc = "Symbols (workspace)" })
+  vim.keymap.set("n", "<leader>S", telescope_builtin.lsp_dynamic_workspace_symbols, { desc = "Symbols (workspace)" })
   vim.keymap.set("n", "<leader>b", telescope_builtin.buffers, { desc = "Buffers" })
   -- Telescope is really slow at showing the symbol references. I might have to
   -- look at whether this can be sped up. Until then, I'll live with the
