@@ -15,7 +15,11 @@ or "nice-to-haves".
 
 ## Break By Default
 
-Unless explicitly asked, make breaking changes to keep the codebase as small as
-possible. Don't keep existing features alive if they're in conflict with the
-newly requested changes.
+Unless explicitly asked:
+
+- Make breaking changes to keep the codebase as small as possible.
+- Don't keep existing features alive if they're in conflict with the newly
+  requested changes.
+- Prefer to just edit the code in place, because we don't want two or more ways
+  to do one thing.
 
