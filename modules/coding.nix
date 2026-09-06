@@ -8,11 +8,16 @@ in
     # Agents
     unstablePkgs.pi-coding-agent
 
+    # Toolchains
+    # Note: tree-sitter needs a C compiler to exist.
+    gcc
+
     # LSPs
     clang-tools
     nixd
     typescript-language-server
     rust-analyzer
+    pyright
 
     # Other editor tools
     tree-sitter
