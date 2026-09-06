@@ -41,6 +41,10 @@
       };
     };
 
+    # Pi coding agent config
+    home.file.".pi".source =
+      config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/fleet/users/mitch/pi";
+
     # Agent Skills
     home.file.".agents".source =
       config.lib.file.mkOutOfStoreSymlink "${config.home.homeDirectory}/fleet/users/mitch/agents";
