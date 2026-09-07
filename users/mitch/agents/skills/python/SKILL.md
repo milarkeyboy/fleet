@@ -13,6 +13,8 @@ description: Implementing Python code.
 ## Typing
 
 - Using type annotations where possible.
+- Prefer built-in type annotations over needing to import them from modules
+  e.g. prefer `dict[str, int]` over `collections.abc.Mapping[str, int]`
 - Newly written code shall pass pyright type checks.
 - Rely on callers of functions providing correct types when they're annotated.
   Don't waste energy on checking the types of values in case a caller has
