@@ -6,6 +6,10 @@ vim.o.expandtab = true
 vim.o.shiftwidth = 4
 vim.o.tabstop = 4
 
+-- Resize windows when neovim itself is resized:
+-- https://neovim.io/doc/user/autocmd/#VimResized
+vim.cmd(":autocmd VimResized * wincmd =")
+
 vim.g.mapleader = " "
 
 -- Plugins + their config
