@@ -121,7 +121,7 @@ test("reviewers receive only the current revision files and diff", () => {
 	const reviewed = todo();
 	reviewed.revisions = [
 		{ humanFeedback: "Preserve the public API.", implementation: { status: "completed", summary: "first", filesChanged: ["one.ts"], tests: [] }, changedFiles: ["one.ts"], diffPreview: "diff one" },
-		{ implementation: { status: "completed", summary: "second", filesChanged: ["two.ts"], tests: [] }, changedFiles: ["two.ts"], diffPreview: "diff two", cumulativeChangedFiles: ["one.ts", "two.ts"], cumulativeDiffPreview: "diff one\ndiff two" },
+		{ implementation: { status: "completed", summary: "second", filesChanged: ["two.ts"], tests: [] }, changedFiles: ["two.ts"], diffPreview: "diff two", cumulativeChangedFiles: ["one.ts", "two.ts"], cumulativeDiffPreview: "diff one\ndiff two", humanCheckpointChangedFiles: ["one.ts", "two.ts"], humanCheckpointDiffPreview: "human checkpoint only" },
 	];
 	const invocation = reviewerInvocation(stateWith(reviewed), reviewed, content());
 	assert.match(invocation.systemPrompt, /Treat supplied human feedback as revision requirements/);
@@ -131,4 +131,5 @@ test("reviewers receive only the current revision files and diff", () => {
 	assert.match(invocation.task, /diff two/);
 	assert.doesNotMatch(invocation.task, /one\.ts/);
 	assert.doesNotMatch(invocation.task, /diff one/);
+	assert.doesNotMatch(invocation.task, /human checkpoint only/);
 });

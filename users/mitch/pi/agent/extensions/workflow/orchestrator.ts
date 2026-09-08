@@ -2,7 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CompleteWorkflowModelConfig } from "./config.ts";
 import type { WorkflowContent } from "./content.ts";
 import { implementerInvocation, reviewerInvocation, validateImplementation, validateReview } from "./context.ts";
-import { diffTrees, snapshotWorktree } from "./git.ts";
+import { diffForHumanCheckpoint, diffTrees, snapshotWorktree } from "./git.ts";
 import { extractProtocolJson, runAgent } from "./runner.ts";
 import { completeTodosManuallyBefore, currentTodo, isWorkflowComplete, latestRevision, nextPendingTodo, type ImplementationResult, type ReviewResult, type WorkflowRevision, type WorkflowState, type WorkflowTodo } from "./state.ts";
 import { todoSummary } from "./ui.ts";
@@ -181,8 +181,15 @@ export class WorkflowOrchestrator {
 				record.changedFiles = diff.changedFiles.length ? diff.changedFiles : record.implementation?.filesChanged ?? [];
 				record.diffPreview = diff.preview;
 
+				// Reviewer handoffs remain scoped to the current automatic revision.
+				// Human review spans every automatic cycle since the human last supplied
+				// feedback (or since the todo began for its first checkpoint).
+				const humanCheckpointDiff = await diffForHumanCheckpoint(ctx.cwd, todo);
+				record.humanCheckpointChangedFiles = humanCheckpointDiff.changedFiles;
+				record.humanCheckpointDiffPreview = humanCheckpointDiff.preview;
+
 				// Keep the per-revision diff above for round-by-round review, while also
-				// caching a todo-wide view for later approval and downstream handoffs.
+				// caching a todo-wide view for downstream handoffs.
 				const firstBaseline = todo.revisions.find((revision) => revision.baselineTree)?.baselineTree;
 				if (firstBaseline && record.resultTree) {
 					const cumulative = await diffTrees(ctx.cwd, firstBaseline, record.resultTree);

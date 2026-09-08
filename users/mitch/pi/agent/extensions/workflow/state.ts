@@ -41,9 +41,12 @@ export interface WorkflowRevision {
 	resultTree?: string;
 	changedFiles: string[];
 	diffPreview?: string;
-	/** Cached first-baseline-to-this-result values for todo-level review. */
+	/** Cached first-baseline-to-this-result values for todo-level handoffs. */
 	cumulativeChangedFiles?: string[];
 	cumulativeDiffPreview?: string;
+	/** Cached previous-human-checkpoint-to-this-result values for human review. */
+	humanCheckpointChangedFiles?: string[];
+	humanCheckpointDiffPreview?: string;
 }
 
 export interface WorkflowTodo {
@@ -125,6 +128,25 @@ export function latestRevision(todo: WorkflowTodo): WorkflowRevision | undefined
 
 export function latestResultRevision(todo: WorkflowTodo): WorkflowRevision | undefined {
 	return [...todo.revisions].reverse().find((revision) => revision.implementation || revision.review || revision.resultTree);
+}
+
+/**
+ * Return the latest result scoped from the most recent human feedback, or from
+ * the todo's first baseline before its initial human checkpoint.
+ */
+export function humanCheckpointRevision(todo: WorkflowTodo): WorkflowRevision | undefined {
+	const latest = latestResultRevision(todo);
+	if (!latest) return undefined;
+	const latestIndex = todo.revisions.lastIndexOf(latest);
+	const revisions = todo.revisions.slice(0, latestIndex + 1);
+	const checkpoint = [...revisions].reverse().find((revision) => revision.humanFeedback)
+		?? revisions.find((revision) => revision.baselineTree);
+	return {
+		...latest,
+		baselineTree: checkpoint?.baselineTree ?? latest.baselineTree,
+		changedFiles: latest.humanCheckpointChangedFiles ?? latest.changedFiles,
+		diffPreview: latest.humanCheckpointDiffPreview,
+	};
 }
 
 /**

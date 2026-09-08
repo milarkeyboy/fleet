@@ -4,10 +4,11 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { discoverWorkflowContent, scaffoldWorkflowRoles, type WorkflowContent } from "./content.ts";
 import { createWorkflowSubprocessModelRegistry, formatWorkflowModels, isProviderModel, isWorkflowRole, isWorkflowThinkingLevel, loadWorkflowModelConfig, requireExecutableWorkflowModels, setWorkflowRoleModel, workflowConfigPath, WORKFLOW_THINKING_LEVELS } from "./config.ts";
+import { diffForHumanCheckpoint } from "./git.ts";
 import { WorkflowOrchestrator } from "./orchestrator.ts";
 import { appendPlanningInstructions, extractWorkflowTodos, resolveSkillTag } from "./planner.ts";
 import { isReadOnlyPlanningCommand } from "./safety.ts";
-import { cloneState, createWorkflowState, currentTodo, isWorkflowComplete, latestRevision, restoreState, type WorkflowState, type WorkflowTodo } from "./state.ts";
+import { cloneState, createWorkflowState, currentTodo, isWorkflowComplete, restoreState, type WorkflowState, type WorkflowTodo } from "./state.ts";
 import { clearWorkflowUi, formatWorkflowDiff, todoSummary, updateWorkflowUi } from "./ui.ts";
 
 const ENTRY_TYPE = "workflow-state-v4";
@@ -35,7 +36,7 @@ function helpText(): string {
 		"/workflow review — inspect and decide the current human checkpoint",
 		"/workflow approve — approve the current todo and continue",
 		"/workflow feedback [text] — send changes through implement/review again",
-		"/workflow diff [step] — show the todo-specific diff",
+		"/workflow diff [step] — show changes since the previous human checkpoint",
 		"/workflow skills — list discovered Agent Skills",
 		"/workflow skill <step> <name|none> — assign or clear a primary skill",
 		"/workflow pause|resume|abort — control execution",
@@ -166,9 +167,9 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		await orchestrator.reviseFromHuman(ctx, todo, feedback);
 	}
 
-	function showTodoDiff(todo: WorkflowTodo): void {
-		const title = `Todo ${todo.step} revision diff`;
-		const diff = latestRevision(todo)?.diffPreview ?? "Diff unavailable.";
+	async function showTodoDiff(todo: WorkflowTodo, ctx: ExtensionContext): Promise<void> {
+		const title = `Todo ${todo.step} changes since previous human checkpoint`;
+		const diff = (await diffForHumanCheckpoint(ctx.cwd, todo)).preview;
 		pi.sendMessage({
 			customType: DIFF_MESSAGE_TYPE,
 			content: `${title}\n\n${diff}`,
@@ -184,7 +185,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		if (!ctx.hasUI || todo.status !== "awaiting-user") return;
 		const action = await ctx.ui.select("Human acceptance", ["Approve and continue", "Inspect todo diff", "Request changes", "Ask reviewer to reconsider", "Pause workflow", "Abort workflow"]);
 		if (action === "Approve and continue") await approveCurrent(ctx);
-		else if (action === "Inspect todo diff") showTodoDiff(todo);
+		else if (action === "Inspect todo diff") await showTodoDiff(todo, ctx);
 		else if (action === "Request changes") await requestFeedback("", ctx);
 		else if (action === "Ask reviewer to reconsider") await requestFeedback("Reconsider the implementation in light of the prior review and perform another independent review. Do not change code unless needed to address a concrete issue.", ctx);
 		else if (action === "Pause workflow") { state.paused = true; persist(); update(ctx); }
@@ -306,7 +307,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				if (command === "diff") {
 					const selected = rest[0] ? state.todos.find((todo) => todo.step === Number(rest[0])) : currentTodo(state);
 					if (!selected) throw new Error("Todo not found.");
-					return showTodoDiff(selected);
+					return await showTodoDiff(selected, ctx);
 				}
 				if (command === "pause") { state.paused = true; persist(); update(ctx); return; }
 				if (command === "resume") { state.paused = false; persist(); update(ctx); return await orchestrator.execute(ctx); }

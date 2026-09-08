@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { shouldAutomaticallyRevise, WorkflowOrchestrator } from "../orchestrator.ts";
-import { completeTodosManuallyBefore, createWorkflowState, cumulativeRevision, currentTodo, isWorkflowComplete, restoreState, type WorkflowTodo } from "../state.ts";
+import { completeTodosManuallyBefore, createWorkflowState, cumulativeRevision, currentTodo, humanCheckpointRevision, isWorkflowComplete, restoreState, type WorkflowTodo } from "../state.ts";
 
 function todo(cycles: number): WorkflowTodo {
 	return { step: 1, text: "Task", primarySkill: "python", status: "reviewing", attempts: cycles, automaticReviewCycles: cycles, revisions: [{ changedFiles: [], review: { verdict: "request_changes", summary: "fix", findings: ["issue"] } }] };
@@ -91,6 +92,44 @@ test("restores all ordered revisions without collapsing their results", () => {
 	assert.deepEqual(restored?.todos[0].revisions.map((revision) => revision.changedFiles), [["one.ts"], ["two.ts"]]);
 });
 
+test("human checkpoint results begin at the latest human feedback", () => {
+	const todo: WorkflowTodo = {
+		step: 1,
+		text: "Task",
+		status: "awaiting-user",
+		attempts: 4,
+		automaticReviewCycles: 2,
+		revisions: [
+			{ baselineTree: "todo-base", resultTree: "first", changedFiles: ["one.ts"], diffPreview: "diff one" },
+			{ baselineTree: "first", resultTree: "first-checkpoint", changedFiles: ["two.ts"], diffPreview: "diff two", humanCheckpointChangedFiles: ["one.ts", "two.ts"], humanCheckpointDiffPreview: "first checkpoint diff" },
+			{ humanFeedback: "Revise it.", baselineTree: "first-checkpoint", resultTree: "third", changedFiles: ["three.ts"], diffPreview: "diff three" },
+			{ baselineTree: "third", resultTree: "second-checkpoint", changedFiles: ["four.ts"], diffPreview: "diff four", humanCheckpointChangedFiles: ["three.ts", "four.ts"], humanCheckpointDiffPreview: "second checkpoint diff" },
+		],
+	};
+
+	const checkpoint = humanCheckpointRevision(todo);
+	assert.equal(checkpoint?.baselineTree, "first-checkpoint");
+	assert.equal(checkpoint?.resultTree, "second-checkpoint");
+	assert.deepEqual(checkpoint?.changedFiles, ["three.ts", "four.ts"]);
+	assert.equal(checkpoint?.diffPreview, "second checkpoint diff");
+});
+
+test("initial human checkpoint results begin at the todo baseline", () => {
+	const todo: WorkflowTodo = {
+		step: 1,
+		text: "Task",
+		status: "awaiting-user",
+		attempts: 2,
+		automaticReviewCycles: 2,
+		revisions: [
+			{ baselineTree: "todo-base", resultTree: "first", changedFiles: ["one.ts"], diffPreview: "diff one" },
+			{ baselineTree: "first", resultTree: "checkpoint", changedFiles: ["two.ts"], diffPreview: "diff two", humanCheckpointChangedFiles: ["one.ts", "two.ts"], humanCheckpointDiffPreview: "checkpoint diff" },
+		],
+	};
+
+	assert.equal(humanCheckpointRevision(todo)?.baselineTree, "todo-base");
+});
+
 test("cumulative todo results retain files changed across revisions", () => {
 	const restored = restoreState({
 		version: 3,
@@ -153,6 +192,59 @@ test("model preflight fails before workflow execution changes todo state", async
 	assert.equal(state.todos[0].status, "pending");
 	assert.equal(state.todos[0].attempts, 0);
 	assert.equal(contentLoaded, false);
+});
+
+test("orchestration caches net diffs between human checkpoints", async () => {
+	const cwd = await mkdtemp(path.join(os.tmpdir(), "workflow-checkpoints-"));
+	try {
+		execFileSync("git", ["init", "-q", cwd]);
+		const state = createWorkflowState();
+		state.todos = [{ step: 1, text: "Task", status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] }];
+		let calls = 0;
+		const orchestrator = new WorkflowOrchestrator(state, {
+			persist() {},
+			updateUi() {},
+			content() {
+				return {
+					planner: "",
+					roles: {
+						implementer: { name: "implementer", body: "Implement", filePath: "/implementer.md", source: "bundled" },
+						reviewer: { name: "reviewer", body: "Review", filePath: "/reviewer.md", source: "bundled" },
+					},
+					skills: {},
+					diagnostics: [],
+				};
+			},
+			async models() {
+				return { implementer: { model: "test/implementer" }, reviewer: { model: "test/reviewer" } } as any;
+			},
+			async runAgent(options) {
+				calls++;
+				if (options.roleName === "workflow-implementer") {
+					const file = ["one.ts", "two.ts", "three.ts", "four.ts"][Math.floor(calls / 2)]!;
+					await writeFile(path.join(cwd, file), `${file}\n`);
+					return { exitCode: 0, output: `<workflow-implementation>{"status":"completed","summary":"${file}","filesChanged":["${file}"],"tests":[]}</workflow-implementation>`, stderr: "", messages: [] };
+				}
+				const verdict = calls === 2 || calls === 6 ? "request_changes" : "approve";
+				return { exitCode: 0, output: `<workflow-review>{"verdict":"${verdict}","summary":"reviewed","findings":${verdict === "request_changes" ? '["revise"]' : "[]"}}</workflow-review>`, stderr: "", messages: [] };
+			},
+		});
+		const ctx = { cwd, signal: undefined, ui: { notify() {} } } as any;
+
+		await orchestrator.execute(ctx);
+		assert.deepEqual(state.todos[0].revisions.at(-1)?.humanCheckpointChangedFiles?.sort(), ["one.ts", "two.ts"]);
+		assert.match(state.todos[0].revisions.at(-1)?.humanCheckpointDiffPreview ?? "", /one\.ts/);
+		assert.match(state.todos[0].revisions.at(-1)?.humanCheckpointDiffPreview ?? "", /two\.ts/);
+
+		await orchestrator.reviseFromHuman(ctx, state.todos[0], "Revise after my review.");
+		const checkpoint = state.todos[0].revisions.at(-1);
+		assert.deepEqual(checkpoint?.humanCheckpointChangedFiles?.sort(), ["four.ts", "three.ts"]);
+		assert.match(checkpoint?.humanCheckpointDiffPreview ?? "", /three\.ts/);
+		assert.match(checkpoint?.humanCheckpointDiffPreview ?? "", /four\.ts/);
+		assert.doesNotMatch(checkpoint?.humanCheckpointDiffPreview ?? "", /one\.ts|two\.ts/);
+	} finally {
+		await rm(cwd, { recursive: true, force: true });
+	}
 });
 
 test("forcing a later todo cancels the active run without recording a failure", async () => {

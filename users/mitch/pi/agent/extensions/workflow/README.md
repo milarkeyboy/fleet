@@ -31,7 +31,7 @@ A todo is complete after review and explicit human approval, or when the user ex
 | `/workflow review` | Show the current checkpoint and approval menu |
 | `/workflow approve` | Approve the current todo and start the next |
 | `/workflow feedback [text]` | Request a revision followed by another review |
-| `/workflow diff [step]` | Show the latest revision's todo-specific Git diff |
+| `/workflow diff [step]` | Show net changes since the previous human checkpoint |
 | `/workflow pause` / `resume` | Pause or resume orchestration |
 | `/workflow abort` | Abort the current todo |
 | `/workflow roles` | Show resolved roles, skills, and diagnostics |
@@ -145,7 +145,9 @@ Todos run sequentially in the current working tree. In Git repositories, before/
 
 A reviewer returns `approve`, `request_changes`, or `escalate`. The first rejection receives one automatic revision and second review; another rejection escalates to the human checkpoint. Human feedback starts a fresh bounded cycle.
 
-Every acceptance checkpoint summary includes the chronological history for that todo: human feedback followed by the implementer and reviewer response for each revision, plus the files changed in each revision. This history is retained across session restarts, so later feedback rounds do not hide earlier summaries. The reviewer, Inspect todo diff, and `/workflow diff` use only the latest revision's diff; earlier per-revision diffs remain persisted in workflow state. Use Git outside the workflow for the cumulative todo change.
+Every acceptance checkpoint summary includes the chronological history for that todo: human feedback followed by the implementer and reviewer response for each revision, plus the files changed in each revision. This history is retained across session restarts, so later feedback rounds do not hide earlier summaries.
+
+Reviewer subagents receive only the current automatic revision's diff. At human acceptance, Inspect todo diff and `/workflow diff` show the net Git diff since the previous human checkpoint. The first checkpoint starts at the todo's initial baseline; human feedback starts a new checkpoint before the next implementer runs. The human therefore sees changes from every automatic implement/review cycle since they last reviewed or supplied feedback. These checkpoint diffs are persisted, and older sessions reconstruct them from their retained tree snapshots when possible.
 
 Versioned session entries persist todos, primary skills, chronological revision summaries, model records, review findings, pending human approval, and manual completion state.
 

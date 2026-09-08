@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { humanCheckpointRevision, latestResultRevision, type WorkflowTodo } from "./state.ts";
 
 const execFileAsync = promisify(execFile);
 const MAX_DIFF_PREVIEW = 60_000;
@@ -58,4 +59,26 @@ export async function diffTrees(cwd: string, before?: string, after?: string): P
 	const full = await git(cwd, ["diff", "--no-ext-diff", "--binary", before, after]);
 	const preview = full.length > MAX_DIFF_PREVIEW ? `${full.slice(0, MAX_DIFF_PREVIEW)}\n\n[Diff truncated]` : full;
 	return { changedFiles: names ? names.split("\n").filter(Boolean) : [], preview: preview || "No changes." };
+}
+
+/** Resolve the net changes made since the previous human checkpoint. */
+export async function diffForHumanCheckpoint(cwd: string, todo: WorkflowTodo): Promise<WorktreeDiff> {
+	const checkpoint = humanCheckpointRevision(todo);
+	if (!checkpoint) return { changedFiles: [], preview: "Human-checkpoint diff unavailable." };
+	if (checkpoint.diffPreview !== undefined) {
+		return { changedFiles: checkpoint.changedFiles, preview: checkpoint.diffPreview };
+	}
+	if (checkpoint.baselineTree && checkpoint.resultTree) {
+		try {
+			return await diffTrees(cwd, checkpoint.baselineTree, checkpoint.resultTree);
+		} catch {
+			// Persisted tree objects may have been pruned. Fall back to the latest
+			// revision preview rather than failing an otherwise resumable workflow.
+		}
+	}
+	const latest = latestResultRevision(todo);
+	return {
+		changedFiles: latest?.changedFiles ?? [],
+		preview: latest?.diffPreview ?? "Human-checkpoint diff unavailable.",
+	};
 }
