@@ -27,3 +27,25 @@ description: Implementing Python code.
 
 - Prefer to use match statements over if statements when acting on enum values,
   so that linters can check for case coverage statically.
+
+## Style
+
+### Literals
+
+- Prefer using `{}` literals over the `dict` function.
+
+### Docstrings
+
+Put docstring start and end on their own line:
+
+```python
+def bad():
+    """Don't do this."""
+    pass
+
+def good():
+    """
+    Do this instead.
+    """
+    pass
+```
