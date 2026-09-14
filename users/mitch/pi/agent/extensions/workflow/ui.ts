@@ -1,4 +1,5 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { formatWorkflowPlan, formatWorkflowTodo } from "./planner.ts";
 import { currentTodo, isTodoComplete, isWorkflowComplete, type WorkflowState, type WorkflowTodo } from "./state.ts";
 
 const STATUS_KEY = "workflow-status";
@@ -38,16 +39,23 @@ export function updateWorkflowUi(ctx: ExtensionContext, state: WorkflowState): v
 		const icon = ICONS[todo.status] ?? "·";
 		const skill = todo.primarySkill ? `[${todo.primarySkill}] ` : "";
 		const request = todo.skillRequest ? `[unknown: ${todo.skillRequest}] ` : "";
-		if (isTodoComplete(todo)) return ctx.ui.theme.fg("success", `${icon} ${todo.step}. `) + ctx.ui.theme.fg("muted", `${skill}${request}${todo.text}`);
-		if (todo.status === "failed") return ctx.ui.theme.fg("error", `${icon} ${todo.step}. ${skill}${request}${todo.text}`);
-		if (todo.status === "awaiting-user") return ctx.ui.theme.fg("warning", `${icon} ${todo.step}. ${skill}${request}${todo.text}`);
-		return ctx.ui.theme.fg("muted", `${icon} ${todo.step}. `) + `${skill}${request}${todo.text}`;
+		if (isTodoComplete(todo)) return ctx.ui.theme.fg("success", `${icon} ${todo.step}. `) + ctx.ui.theme.fg("muted", `${skill}${request}${todo.title}`);
+		if (todo.status === "failed") return ctx.ui.theme.fg("error", `${icon} ${todo.step}. ${skill}${request}${todo.title}`);
+		if (todo.status === "awaiting-user") return ctx.ui.theme.fg("warning", `${icon} ${todo.step}. ${skill}${request}${todo.title}`);
+		return ctx.ui.theme.fg("muted", `${icon} ${todo.step}. `) + `${skill}${request}${todo.title}`;
 	}));
 }
 
 export function clearWorkflowUi(ctx: ExtensionContext): void {
 	ctx.ui.setStatus(STATUS_KEY, undefined);
 	ctx.ui.setWidget(WIDGET_KEY, undefined);
+}
+
+export function workflowStatusSummary(state: WorkflowState): string {
+	const mode = state.planning ? "planning" : state.paused ? "paused" : state.executing ? "executing" : "idle";
+	if (!state.todos.length) return `Workflow: ${mode}\nNo todos.`;
+	const statuses = state.todos.map((todo) => `- Todo ${todo.step}: ${todo.status}`).join("\n");
+	return `Workflow: ${mode}\n\n${formatWorkflowPlan(state.todos)}\n\nTodo status:\n${statuses}`;
 }
 
 /** Render a raw unified Git diff with Pi's native diff palette. */
@@ -61,9 +69,8 @@ export function formatWorkflowDiff(diff: string, theme: Theme): string {
 }
 
 export function todoSummary(todo: WorkflowTodo): string {
-	const skill = todo.primarySkill ? ` [${todo.primarySkill}]` : "";
 	const lines = [
-		`Todo ${todo.step}${skill}: ${todo.text}`,
+		formatWorkflowTodo(todo),
 		`Status: ${todo.status}`,
 		`Attempts: ${todo.attempts}`,
 	];

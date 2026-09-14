@@ -51,7 +51,8 @@ export interface WorkflowRevision {
 
 export interface WorkflowTodo {
 	step: number;
-	text: string;
+	title: string;
+	instructions: string[];
 	primarySkill?: string;
 	skillSource?: WorkflowSkillSource;
 	/** An explicit plan tag that did not match a discovered skill. */
@@ -64,7 +65,7 @@ export interface WorkflowTodo {
 }
 
 export interface WorkflowState {
-	version: 4;
+	version: 5;
 	planning: boolean;
 	executing: boolean;
 	paused: boolean;
@@ -79,7 +80,7 @@ export interface WorkflowState {
 export function createWorkflowState(): WorkflowState {
 	const now = Date.now();
 	return {
-		version: 4,
+		version: 5,
 		planning: false,
 		executing: false,
 		paused: false,
@@ -170,69 +171,19 @@ export function cloneState(state: WorkflowState): WorkflowState {
 	return JSON.parse(JSON.stringify(state)) as WorkflowState;
 }
 
-function migrateRevision(value: unknown): WorkflowRevision | undefined {
-	if (!value || typeof value !== "object") return undefined;
-	const candidate = value as Record<string, unknown>;
-	const revision = { ...candidate } as unknown as WorkflowRevision;
-	if (!Array.isArray(revision.changedFiles)) revision.changedFiles = [];
-	return revision;
-}
-
-function migrateTodo(value: unknown, legacy: boolean): WorkflowTodo | undefined {
-	if (!value || typeof value !== "object") return undefined;
-	const candidate = value as Record<string, unknown>;
-	if (typeof candidate.step !== "number" || typeof candidate.text !== "string" || typeof candidate.status !== "string") return undefined;
-
-	const {
-		language: _language,
-		languageSource: _languageSource,
-		implementation,
-		review,
-		humanFeedback,
-		baselineTree,
-		resultTree,
-		changedFiles,
-		diffPreview,
-		revisions: persistedRevisions,
-		...rest
-	} = candidate;
-	const todo = { ...rest, revisions: [] } as unknown as WorkflowTodo;
-	if (typeof todo.attempts !== "number") todo.attempts = 0;
-	if (typeof todo.automaticReviewCycles !== "number") todo.automaticReviewCycles = 0;
-
-	if (Array.isArray(persistedRevisions)) {
-		todo.revisions = persistedRevisions.map(migrateRevision).filter((revision): revision is WorkflowRevision => Boolean(revision));
-	} else if (implementation !== undefined || review !== undefined || humanFeedback !== undefined || baselineTree !== undefined || resultTree !== undefined || diffPreview !== undefined || (Array.isArray(changedFiles) && changedFiles.length > 0)) {
-		// Older sessions kept only the latest result on the todo. Preserve it as
-		// the first revision so a resumed workflow does not lose its review context.
-		const oldResult = implementation !== undefined || review !== undefined || baselineTree !== undefined || resultTree !== undefined || diffPreview !== undefined || (Array.isArray(changedFiles) && changedFiles.length > 0);
-		if (oldResult) todo.revisions.push({
-			...(implementation ? { implementation } : {}),
-			...(review ? { review } : {}),
-			...(typeof baselineTree === "string" ? { baselineTree } : {}),
-			...(typeof resultTree === "string" ? { resultTree } : {}),
-			...(typeof diffPreview === "string" ? { diffPreview } : {}),
-			changedFiles: Array.isArray(changedFiles) ? changedFiles : [],
-		});
-		if (humanFeedback !== undefined) todo.revisions.push({ humanFeedback: String(humanFeedback), changedFiles: [] });
-	}
-
-	if (legacy && typeof candidate.language === "string" && candidate.languageSource !== "inferred") {
-		todo.primarySkill = candidate.language;
-		if (candidate.languageSource === "plan" || candidate.languageSource === "user") todo.skillSource = candidate.languageSource;
-	}
-	return todo;
-}
-
 export function restoreState(value: unknown): WorkflowState | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const candidate = value as Record<string, unknown>;
-	if ((candidate.version !== 1 && candidate.version !== 2 && candidate.version !== 3 && candidate.version !== 4) || !Array.isArray(candidate.todos)) return undefined;
-	const todos = candidate.todos.map((todo) => migrateTodo(todo, candidate.version === 1)).filter((todo): todo is WorkflowTodo => Boolean(todo));
-	return {
-		...createWorkflowState(),
-		...candidate,
-		version: 4,
-		todos,
-	} as WorkflowState;
+	if (candidate.version !== 5 || !Array.isArray(candidate.todos)) return undefined;
+	const validTodos = candidate.todos.every((todo) => {
+		if (!todo || typeof todo !== "object") return false;
+		const item = todo as Record<string, unknown>;
+		return typeof item.step === "number"
+			&& typeof item.title === "string"
+			&& Array.isArray(item.instructions)
+			&& item.instructions.every((instruction) => typeof instruction === "string")
+			&& Array.isArray(item.revisions);
+	});
+	if (!validTodos) return undefined;
+	return { ...createWorkflowState(), ...candidate, version: 5 } as WorkflowState;
 }

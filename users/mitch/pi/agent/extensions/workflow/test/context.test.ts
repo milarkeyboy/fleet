@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { MarkdownContent, WorkflowContent } from "../content.ts";
 import { implementerInvocation, reviewerInvocation } from "../context.ts";
+import { formatWorkflowPlan, formatWorkflowTodo } from "../planner.ts";
 import { createWorkflowState, type WorkflowTodo } from "../state.ts";
 
 function skill(name: string): MarkdownContent {
@@ -15,17 +16,20 @@ function content(): WorkflowContent {
 			implementer: { name: "implementer", body: "Implementer prompt", filePath: "/roles/implementer.md", source: "bundled" },
 			reviewer: { name: "reviewer", body: "Reviewer prompt", filePath: "/roles/reviewer.md", source: "bundled" },
 		},
-		skills: {
-			cpp: skill("cpp"),
-			python: skill("python"),
-		},
+		skills: { cpp: skill("cpp"), python: skill("python") },
 		diagnostics: [],
 	};
 }
 
 function todo(primarySkill?: string): WorkflowTodo {
 	return {
-		step: 1, text: "Implement task", ...(primarySkill ? { primarySkill } : {}), status: "pending", attempts: 0, automaticReviewCycles: 0,
+		step: 1,
+		title: "Implement task",
+		instructions: ["Move `old/task.ts` to `new/task.ts`.", "Preserve existing behavior."],
+		...(primarySkill ? { primarySkill } : {}),
+		status: "pending",
+		attempts: 0,
+		automaticReviewCycles: 0,
 		revisions: [{ implementation: { status: "completed", summary: "done", filesChanged: [], tests: [] }, changedFiles: [] }],
 	};
 }
@@ -37,14 +41,16 @@ function stateWith(...todos: WorkflowTodo[]) {
 }
 
 test("untagged todos run without an Agent Skill", () => {
-	const invocation = implementerInvocation(createWorkflowState(), todo(), content());
+	const task = todo();
+	const invocation = implementerInvocation(stateWith(task), task, content());
 	assert.deepEqual(invocation.skillPaths, []);
 	assert.match(invocation.systemPrompt, /^Implementer prompt/);
 	assert.doesNotMatch(invocation.task, /\[unassigned\]/);
 });
 
 test("the todo primary skill is supplied to implementers and reviewers", () => {
-	const implementation = implementerInvocation(createWorkflowState(), todo("cpp"), content());
+	const implementationTodo = todo("cpp");
+	const implementation = implementerInvocation(stateWith(implementationTodo), implementationTodo, content());
 	const reviewed = todo("python");
 	const review = reviewerInvocation(stateWith(reviewed), reviewed, content());
 	assert.deepEqual(implementation.skillPaths, ["/content/cpp/SKILL.md"]);
@@ -52,17 +58,8 @@ test("the todo primary skill is supplied to implementers and reviewers", () => {
 });
 
 test("missing primary skills fail clearly", () => {
-	assert.throws(() => implementerInvocation(createWorkflowState(), todo("missing"), content()), /requires undiscovered Agent Skill "missing"/);
-});
-
-test("implementers retain the latest feedback when a retry starts a new revision", () => {
-	const retried = todo();
-	retried.revisions = [
-		{ humanFeedback: "Keep the compatibility behavior.", implementation: { status: "completed", summary: "first", filesChanged: [], tests: [] }, changedFiles: [] },
-		{ changedFiles: [] },
-	];
-	const invocation = implementerInvocation(createWorkflowState(), retried, content());
-	assert.match(invocation.task, /Keep the compatibility behavior\./);
+	const task = todo("missing");
+	assert.throws(() => implementerInvocation(stateWith(task), task, content()), /requires undiscovered Agent Skill "missing"/);
 });
 
 test("implementers retain human requirements alongside later reviewer findings", () => {
@@ -71,33 +68,34 @@ test("implementers retain human requirements alongside later reviewer findings",
 		{ humanFeedback: "Keep the compatibility behavior.", changedFiles: [], implementation: { status: "completed", summary: "first", filesChanged: [], tests: [] }, review: { verdict: "request_changes", summary: "needs another fix", findings: ["Use the compatibility adapter."] } },
 		{ changedFiles: [] },
 	];
-	const invocation = implementerInvocation(createWorkflowState(), retried, content());
+	const invocation = implementerInvocation(stateWith(retried), retried, content());
 	assert.match(invocation.task, /Keep the compatibility behavior\./);
 	assert.match(invocation.task, /Use the compatibility adapter\./);
 	assert.match(invocation.task, /Human revision requirements \(take precedence/);
 });
 
-test("implementers and reviewers receive the ordered workflow plan and scope boundary", () => {
+test("implementers and reviewers receive the identical complete canonical plan", () => {
 	const approved = todo();
-	Object.assign(approved, { step: 1, text: "Prepare state", status: "approved" });
+	Object.assign(approved, { step: 1, title: "Prepare state", instructions: ["Create `state.ts`.", "Keep the public API."], status: "approved" });
 	const current = todo();
-	Object.assign(current, { step: 2, text: "Implement current behavior", status: "implementing" });
+	Object.assign(current, { step: 2, title: "Implement current behavior", instructions: ["Move `old.ts` to `exact/new.ts`.", "Run focused tests."], status: "implementing" });
 	const upcoming = todo();
-	Object.assign(upcoming, { step: 3, text: "Add later UI", status: "pending" });
+	Object.assign(upcoming, { step: 3, title: "Add later UI", instructions: ["Add the widget later."], status: "pending" });
 	const aborted = todo();
-	Object.assign(aborted, { step: 4, text: "Discarded task", status: "aborted" });
+	Object.assign(aborted, { step: 4, title: "Discarded task", instructions: ["Do not implement this."], status: "aborted" });
 	const state = stateWith(approved, current, upcoming, aborted);
-	const expectedPlan = [
-		"1. [approved] Prepare state",
-		"2. [current] Implement current behavior",
-		"3. [upcoming] Add later UI",
-		"4. [aborted] Discarded task",
-	].join("\n");
+	const canonical = formatWorkflowPlan(state.todos);
 
 	const implementation = implementerInvocation(state, current, content());
 	const review = reviewerInvocation(state, current, content());
-	assert.ok(implementation.task.includes(expectedPlan));
-	assert.ok(review.task.includes(expectedPlan));
+	assert.ok(implementation.task.includes(canonical));
+	assert.ok(review.task.includes(canonical));
+	assert.ok(implementation.task.includes(formatWorkflowTodo(current)));
+	assert.ok(review.task.includes(formatWorkflowTodo(current)));
+	assert.match(implementation.task, /Move `old\.ts` to `exact\/new\.ts`\./);
+	assert.match(review.task, /Move `old\.ts` to `exact\/new\.ts`\./);
+	assert.match(implementation.task, /Todo 1: approved/);
+	assert.match(review.task, /Todo 3: upcoming/);
 	assert.match(implementation.systemPrompt, /Do not implement work assigned to upcoming todos/);
 	assert.match(implementation.systemPrompt, /return blocked instead of absorbing future scope/);
 	assert.match(implementation.systemPrompt, /Explicit human revision requirements override this boundary/);
@@ -109,11 +107,11 @@ test("implementers and reviewers receive the ordered workflow plan and scope bou
 
 test("later implementers are told when prerequisite todos were completed manually", () => {
 	const manual = todo();
-	Object.assign(manual, { step: 1, text: "Manual prerequisite", status: "completed-manually", revisions: [] });
+	Object.assign(manual, { step: 1, title: "Manual prerequisite", instructions: ["Complete by hand."], status: "completed-manually", revisions: [] });
 	const current = todo();
-	Object.assign(current, { step: 2, text: "Continue work", status: "implementing" });
+	Object.assign(current, { step: 2, title: "Continue work", instructions: ["Use the prerequisite."], status: "implementing" });
 	const invocation = implementerInvocation(stateWith(manual, current), current, content());
-	assert.match(invocation.task, /1\. \[completed-manually\] Manual prerequisite/);
+	assert.match(invocation.task, /Todo 1: completed-manually/);
 	assert.match(invocation.task, /Todo 1: Completed manually; inspect the current worktree/);
 });
 

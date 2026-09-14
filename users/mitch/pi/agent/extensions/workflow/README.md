@@ -58,22 +58,15 @@ The exact model and thinking level used are recorded with each implementation an
 
 ## Planning and optional skills
 
-Planning uses the top-level session's selected model, conversation, context files, and normal system prompt. While planning is active, the extension appends the bundled `content/planner.md`, plan-format instructions, and the names and descriptions of currently discovered skills. The planner Markdown defines how work should be divided into cohesive, independently reviewable todos. Planning remains read-only, with `workflow_questionnaire` available for important decisions.
+Planning uses the top-level session's selected model, conversation, context files, and normal system prompt. While planning is active, the extension appends the bundled `content/planner.md`, typed-submission instructions, and the names and descriptions of currently discovered skills. Planning remains read-only, with `workflow_questionnaire` available for important decisions.
 
-The prompt is attached to the system prompt for each planning run rather than inserted as a session message, so toggling or inspecting the workflow does not accumulate copies in conversation context. Use Pi's `/reload` after editing the bundled planner.
+The planner submits its final plan through `workflow_submit_plan` as native todo objects containing a title, an instructions array, and an optional primary skill. The extension does not parse an assistant Markdown response. Every requirement needed during implementation or review must be included in the instructions array because subagents do not inherit the planning conversation.
 
-Final plans use numbered todos under `Plan:`. A todo may carry one primary skill tag, but tags are optional:
+One deterministic formatter renders those objects as the canonical plan shown by the submission tool, `/workflow status`, and `/workflow todos`. The same formatter supplies the complete plan and current todo to both subagent roles. Role protocols, workflow statuses, human feedback, implementation results, and diffs are additional context rather than part of the canonical plan. This guarantees delivery of the reviewed plan text, not model compliance with it.
 
-```markdown
-Plan:
-1. Update the general TypeScript workflow state.
-2. [rust] Implement the Rust parser and focused tests.
-3. [python] Update the Python bindings.
-```
+The planner is told to leave the primary skill unset when no discovered skill applies. Untagged todos execute normally. Skill values must use exact discovered names. An unknown explicit skill must be resolved interactively or with `/workflow skill N NAME|none` before execution.
 
-The planner is told to leave work untagged when no discovered skill applies. Untagged todos execute normally without a primary skill. Tags must use exact discovered skill names. An unknown explicit tag must be resolved interactively or with `/workflow skill N NAME|none` before execution.
-
-Legacy persisted language assignments retain their exact names, while old inferred assignments are cleared.
+Workflow state created before the native todo format cannot recover discarded instructions and must be replanned.
 
 ## Portable roles and Agent Skills
 
@@ -133,7 +126,7 @@ Every implementer and reviewer is a fresh pi JSON-mode subprocess launched with:
 - `--no-prompt-templates`
 - the role's required configured model and thinking level
 
-Subagents retain Pi's normal context-file discovery, including applicable user and project `AGENTS.md` files. Both roles receive the ordered workflow plan with each todo marked as approved, completed manually, current, upcoming, or aborted. The plan is a scope boundary: implementers must not absorb upcoming work, and reviewers must flag scope leakage without requesting work assigned to later todos.
+Subagents retain Pi's normal context-file discovery, including applicable user and project `AGENTS.md` files. Both roles receive the complete canonical workflow plan and a separate status list marking each todo as approved, completed manually, current, upcoming, or aborted. The plan is a scope boundary: implementers must not absorb upcoming work, and reviewers must flag scope leakage without requesting work assigned to later todos.
 
 In addition, the implementer receives its role, selected primary skill, current todo, relevant paths, concise prerequisite handoffs, and revision feedback. The reviewer receives its role, the selected primary skill, the latest human feedback, the revision-specific diff, implementation summary, and validation results. Explicit human revision requirements can override the plan boundary and remain in both roles' context through automatic review retries. Reviewer tools exclude `edit`, `write`, and `bash`.
 

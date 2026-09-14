@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatWorkflowDiff, todoSummary, updateWorkflowUi } from "../ui.ts";
+import { formatWorkflowDiff, todoSummary, updateWorkflowUi, workflowStatusSummary } from "../ui.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { createWorkflowState, type WorkflowTodo } from "../state.ts";
 
 test("todo summaries show optional skills and actual role models", () => {
 	const todo: WorkflowTodo = {
 		step: 1,
-		text: "Task",
+		title: "Task",
+		instructions: ["Complete the task."],
 		primarySkill: "rust",
 		status: "awaiting-user",
 		attempts: 1,
@@ -19,7 +20,7 @@ test("todo summaries show optional skills and actual role models", () => {
 		}],
 	};
 	const summary = todoSummary(todo);
-	assert.match(summary, /Todo 1 \[rust\]/);
+	assert.match(summary, /^1\. \[rust\] Task\n   - Complete the task\./);
 	assert.match(summary, /Implementer \(openai\/coder, thinking: medium\)/);
 	assert.match(summary, /Reviewer \(anthropic\/reviewer, thinking: high\): approve/);
 });
@@ -27,7 +28,8 @@ test("todo summaries show optional skills and actual role models", () => {
 test("todo summaries preserve implementer and reviewer responses for each round", () => {
 	const todo: WorkflowTodo = {
 		step: 1,
-		text: "Task",
+		title: "Task",
+		instructions: ["Complete the task."],
 		status: "awaiting-user",
 		attempts: 2,
 		automaticReviewCycles: 0,
@@ -53,8 +55,8 @@ test("manually completed todos count as done and use a distinct widget marker", 
 	const state = createWorkflowState();
 	state.currentStep = 2;
 	state.todos = [
-		{ step: 1, text: "Manual task", status: "completed-manually", attempts: 0, automaticReviewCycles: 0, revisions: [] },
-		{ step: 2, text: "Pending task", status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] },
+		{ step: 1, title: "Manual task", instructions: ["Complete manually."], status: "completed-manually", attempts: 0, automaticReviewCycles: 0, revisions: [] },
+		{ step: 2, title: "Pending task", instructions: ["Complete next."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] },
 	];
 	let status = "";
 	let widget: string[] = [];
@@ -65,6 +67,38 @@ test("manually completed todos count as done and use a distinct widget marker", 
 	} } as any, state);
 	assert.match(status, /Workflow 1\/2/);
 	assert.match(widget[0], /^✓\* 1\./);
+});
+
+test("status shows the complete canonical plan while the widget stays compact", () => {
+	const state = createWorkflowState();
+	state.planning = true;
+	state.todos = [{
+		step: 1,
+		title: "Move the dictionary.",
+		instructions: ["Move `old.txt` to `exact/common.txt`.", "Keep it read-only for IDE additions."],
+		status: "pending",
+		attempts: 0,
+		automaticReviewCycles: 0,
+		revisions: [],
+	}];
+	let widget: string[] = [];
+	updateWorkflowUi({ ui: {
+		theme: { fg: (_color: string, text: string) => text },
+		setStatus() {},
+		setWidget: (_key: string, value: string[]) => { widget = value; },
+	} } as any, state);
+	assert.equal(widget[0], "☐ 1. Move the dictionary.");
+	assert.equal(workflowStatusSummary(state), [
+		"Workflow: planning",
+		"",
+		"Plan:",
+		"1. Move the dictionary.",
+		"   - Move `old.txt` to `exact/common.txt`.",
+		"   - Keep it read-only for IDE additions.",
+		"",
+		"Todo status:",
+		"- Todo 1: pending",
+	].join("\n"));
 });
 
 test("workflow diffs use native diff colors without styling file headers as changes", () => {
@@ -81,6 +115,6 @@ test("workflow diffs use native diff colors without styling file headers as chan
 });
 
 test("untagged todo summaries do not imply missing configuration", () => {
-	const todo: WorkflowTodo = { step: 1, text: "General task", status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] };
-	assert.equal(todoSummary(todo).split("\n")[0], "Todo 1: General task");
+	const todo: WorkflowTodo = { step: 1, title: "General task", instructions: ["Complete it."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] };
+	assert.equal(todoSummary(todo).split("\n")[0], "1. General task");
 });

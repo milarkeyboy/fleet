@@ -1,5 +1,5 @@
 import type { MarkdownContent, WorkflowContent, WorkflowRoleContent } from "./content.ts";
-import { extractRelevantFiles } from "./planner.ts";
+import { extractRelevantFiles, formatWorkflowPlan, formatWorkflowTodo } from "./planner.ts";
 import { cumulativeRevision, isTodoComplete, latestRevision, type ImplementationResult, type ReviewResult, type WorkflowState, type WorkflowTodo } from "./state.ts";
 
 function dependencyHandoffs(state: WorkflowState, todo: WorkflowTodo): string {
@@ -8,7 +8,7 @@ function dependencyHandoffs(state: WorkflowState, todo: WorkflowTodo): string {
 		.map((item) => {
 			const revision = cumulativeRevision(item);
 			if (item.status === "completed-manually") return `- Todo ${item.step}: Completed manually; inspect the current worktree for its changes.`;
-			return `- Todo ${item.step}: ${revision?.implementation?.summary ?? "Approved without a recorded implementation summary."}\n  Files: ${revision?.changedFiles.join(", ") || "none"}`;
+			return `- Todo ${item.step} (${item.title}): ${revision?.implementation?.summary ?? "Approved without a recorded implementation summary."}\n  Files: ${revision?.changedFiles.join(", ") || "none"}`;
 		});
 	return prior.length ? prior.join("\n") : "- None";
 }
@@ -29,11 +29,7 @@ function skillProtocol(skills: MarkdownContent[]): string {
 	return `Read and follow only these selected Agent Skills:\n${skills.map((skill) => `- ${skill.name}: ${skill.filePath}`).join("\n")}`;
 }
 
-function todoHeading(todo: WorkflowTodo): string {
-	return `Todo ${todo.step}${todo.primarySkill ? ` [${todo.primarySkill}]` : ""}: ${todo.text}`;
-}
-
-function workflowPlan(state: WorkflowState, current: WorkflowTodo): string {
+function workflowStatuses(state: WorkflowState, current: WorkflowTodo): string {
 	return state.todos.map((todo) => {
 		const status = todo.step === current.step
 			? "current"
@@ -44,7 +40,7 @@ function workflowPlan(state: WorkflowState, current: WorkflowTodo): string {
 					: todo.status === "aborted"
 						? "aborted"
 						: "upcoming";
-		return `${todo.step}. [${status}] ${todo.text}`;
+		return `- Todo ${todo.step}: ${status}`;
 	}).join("\n");
 }
 
@@ -61,7 +57,7 @@ export function implementerInvocation(state: WorkflowState, todo: WorkflowTodo, 
 	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
 	const role = content.roles.implementer;
 	const skills = selectedSkills(todo, content);
-	const relevant = extractRelevantFiles(todo.text);
+	const relevant = extractRelevantFiles(todo);
 	const protocol = `Work only on the assigned todo. You may inspect additional files when necessary, but do not start another todo.
 The workflow plan is a scope boundary. Do not implement work assigned to upcoming todos. If the current todo cannot be completed without that work, return blocked instead of absorbing future scope. Explicit human revision requirements override this boundary.
 ${skillProtocol(skills)}
@@ -72,11 +68,14 @@ End with exactly one machine-readable block:
 	const reviewerFeedback = latestReviewerFeedback(todo);
 	const task = `Goal: ${state.goal ?? "Complete the accepted workflow plan"}
 
-Workflow plan:
-${workflowPlan(state, todo)}
+Canonical workflow plan (the exact plan presented for human review):
+${formatWorkflowPlan(state.todos)}
 
-Current assignment:
-${todoHeading(todo)}
+Workflow orchestration status (not part of the canonical plan):
+${workflowStatuses(state, todo)}
+
+Current assignment (rendered from the same todo data as the canonical plan):
+${formatWorkflowTodo(todo)}
 
 Relevant files named by the plan:
 ${relevant.length ? relevant.map((file) => `- ${file}`).join("\n") : "- Discover the minimum relevant files."}
@@ -103,11 +102,14 @@ Treat supplied human feedback as revision requirements that override the plan bo
 A request_changes verdict must contain concrete, actionable findings. Use escalate for ambiguity requiring a human decision.
 End with exactly one machine-readable block:
 <workflow-review>{"verdict":"approve|request_changes|escalate","summary":"...","findings":["..."]}</workflow-review>`;
-	const task = `Workflow plan:
-${workflowPlan(state, todo)}
+	const task = `Canonical workflow plan (the exact plan presented for human review):
+${formatWorkflowPlan(state.todos)}
 
-Current assignment:
-${todoHeading(todo)}
+Workflow orchestration status (not part of the canonical plan):
+${workflowStatuses(state, todo)}
+
+Current assignment (rendered from the same todo data as the canonical plan):
+${formatWorkflowTodo(todo)}
 
 Human feedback governing this revision:
 ${latestHumanFeedback(todo) ?? "(none)"}

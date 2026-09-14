@@ -27,8 +27,9 @@ test("bundled shared Markdown contains only plain workflow prompts", async () =>
 		assert.equal(markdown.startsWith("---\n"), false, `${file} must be a plain Markdown prompt`);
 	}
 	const planner = await readFile(path.join(root, "planner.md"), "utf8");
-	assert.match(planner, /implemented and reviewed in isolation/);
-	assert.match(planner, /Do not create standalone todos/);
+	assert.match(planner, /single increment/);
+	assert.match(planner, /different, isolated workers/);
+	assert.doesNotMatch(planner, /workflow_submit_plan/);
 });
 
 test("scaffolds only workflow role prompts", async () => {

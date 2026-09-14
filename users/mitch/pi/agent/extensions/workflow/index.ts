@@ -6,25 +6,18 @@ import { discoverWorkflowContent, scaffoldWorkflowRoles, type WorkflowContent } 
 import { createWorkflowSubprocessModelRegistry, formatWorkflowModels, isProviderModel, isWorkflowRole, isWorkflowThinkingLevel, loadWorkflowModelConfig, requireExecutableWorkflowModels, setWorkflowRoleModel, workflowConfigPath, WORKFLOW_THINKING_LEVELS } from "./config.ts";
 import { diffForHumanCheckpoint } from "./git.ts";
 import { WorkflowOrchestrator } from "./orchestrator.ts";
-import { appendPlanningInstructions, extractWorkflowTodos, resolveSkillTag } from "./planner.ts";
+import { appendPlanningInstructions, formatWorkflowPlan, resolveSkillTag, submitWorkflowPlan } from "./planner.ts";
 import { isReadOnlyPlanningCommand } from "./safety.ts";
 import { cloneState, createWorkflowState, currentTodo, isWorkflowComplete, restoreState, type WorkflowState, type WorkflowTodo } from "./state.ts";
-import { clearWorkflowUi, formatWorkflowDiff, todoSummary, updateWorkflowUi } from "./ui.ts";
+import { clearWorkflowUi, formatWorkflowDiff, todoSummary, updateWorkflowUi, workflowStatusSummary } from "./ui.ts";
 
-const ENTRY_TYPE = "workflow-state-v4";
-const PREVIOUS_ENTRY_TYPE = "workflow-state-v3";
-const OLDER_ENTRY_TYPE = "workflow-state-v2";
-const LEGACY_ENTRY_TYPE = "workflow-state-v1";
+const ENTRY_TYPE = "workflow-state-v5";
+const LEGACY_ENTRY_TYPES = new Set(["workflow-state-v1", "workflow-state-v2", "workflow-state-v3", "workflow-state-v4"]);
 const QUESTIONNAIRE_TOOL = "workflow_questionnaire";
+const SUBMIT_PLAN_TOOL = "workflow_submit_plan";
 const DIFF_MESSAGE_TYPE = "workflow-diff";
-const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls", QUESTIONNAIRE_TOOL];
+const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls", QUESTIONNAIRE_TOOL, SUBMIT_PLAN_TOOL];
 const DISABLED_PLANNING_TOOLS = new Set(["write", "edit"]);
-
-function textOf(message: any): string {
-	if (typeof message?.content === "string") return message.content;
-	if (!Array.isArray(message?.content)) return "";
-	return message.content.filter((part: any) => part?.type === "text").map((part: any) => part.text ?? "").join("\n");
-}
 
 function helpText(): string {
 	return [
@@ -117,7 +110,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		const skills = Object.values(getContent(ctx).skills).sort((a, b) => a.name.localeCompare(b.name));
 		for (const todo of todos.filter((item) => item.skillRequest)) {
 			const options = ["No primary skill", ...skills.map((skill) => `${skill.name} — ${skill.description}`)];
-			const selected = await ctx.ui.select(`Unknown Agent Skill [${todo.skillRequest}] on todo ${todo.step}: ${todo.text}`, options);
+			const selected = await ctx.ui.select(`Unknown Agent Skill [${todo.skillRequest}] on todo ${todo.step}: ${todo.title}`, options);
 			if (!selected) continue;
 			if (selected !== "No primary skill") {
 				todo.primarySkill = selected.split(" — ", 1)[0];
@@ -191,6 +184,40 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		else if (action === "Pause workflow") { state.paused = true; persist(); update(ctx); }
 		else if (action === "Abort workflow") { todo.status = "aborted"; state.executing = false; state.paused = false; persist(); update(ctx); }
 	}
+
+	pi.registerTool({
+		name: SUBMIT_PLAN_TOOL,
+		label: "Submit Workflow Plan",
+		description: "Submit the final workflow plan as typed todos. Every implementation and review requirement must be included in each todo's instructions array.",
+		executionMode: "sequential",
+		parameters: Type.Object({
+			todos: Type.Array(Type.Object({
+				title: Type.String({ minLength: 1 }),
+				instructions: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+				primarySkill: Type.Optional(Type.String({ minLength: 1 })),
+			}), { minItems: 1, maxItems: 40 }),
+		}),
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			if (!state.planning) throw new Error("Workflow plans can only be submitted while workflow planning is active.");
+			submitWorkflowPlan(state, params.todos, getContent(ctx).skills);
+			await resolveUnknownSkillRequests(ctx);
+			persist();
+			update(ctx);
+			const plan = formatWorkflowPlan(state.todos);
+			return {
+				content: [{ type: "text", text: plan }],
+				details: { plan, todoCount: state.todos.length },
+				terminate: true,
+			};
+		},
+		renderCall(args, theme) {
+			return new Text(theme.fg("toolTitle", `Submit workflow plan (${args.todos?.length ?? 0} todos)`), 0, 0);
+		},
+		renderResult(result, _options, _theme) {
+			const details = result.details as { plan?: string } | undefined;
+			return new Text(details?.plan ?? "Workflow plan was not captured.", 0, 0);
+		},
+	});
 
 	pi.registerTool({
 		name: QUESTIONNAIRE_TOOL,
@@ -268,10 +295,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 					const config = await setWorkflowRoleModel(role, model, thinkingLevel, agentDir);
 					return ctx.ui.notify(`Workflow model updated.\n${formatWorkflowModels(config)}\nconfig: ${workflowConfigPath(agentDir)}`, "info");
 				}
-				if (command === "status" || command === "todos") {
-					const lines = state.todos.map((todo) => `${todo.step}. ${todo.primarySkill ? `[${todo.primarySkill}] ` : ""}${todo.skillRequest ? `[unknown: ${todo.skillRequest}] ` : ""}${todo.status} — ${todo.text}`);
-					return ctx.ui.notify(`Workflow: ${state.planning ? "planning" : state.paused ? "paused" : state.executing ? "executing" : "idle"}\n${lines.join("\n") || "No todos."}`, "info");
-				}
+				if (command === "status" || command === "todos") return ctx.ui.notify(workflowStatusSummary(state), "info");
 				if (command === "skill") {
 					const step = Number(rest[0]);
 					const requested = rest[1]?.trim().toLowerCase();
@@ -335,28 +359,17 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		return { systemPrompt: appendPlanningInstructions(event.systemPrompt, found.planner, found.skills) };
 	});
 
-	pi.on("agent_end", async (event, ctx) => {
-		if (!state.planning) return;
-		const assistant = [...event.messages].reverse().find((message: any) => message?.role === "assistant");
-		if (!assistant) return;
-		const todos = extractWorkflowTodos(textOf(assistant), getContent(ctx).skills);
-		if (!todos.length) return;
-		state.todos = todos;
-		state.currentStep = todos[0]?.step;
-		await resolveUnknownSkillRequests(ctx);
-		persist();
-		update(ctx);
-		ctx.ui.notify(`Workflow plan captured (${todos.length} todos). Review with /workflow todos, then run /workflow execute.`, "info");
-	});
-
 	pi.on("session_start", async (_event, ctx) => {
-		const saved = ctx.sessionManager.getEntries().filter((entry: any) => entry.type === "custom" && (entry.customType === ENTRY_TYPE || entry.customType === PREVIOUS_ENTRY_TYPE || entry.customType === OLDER_ENTRY_TYPE || entry.customType === LEGACY_ENTRY_TYPE)).pop() as { data?: unknown } | undefined;
+		const entries = ctx.sessionManager.getEntries().filter((entry: any) => entry.type === "custom");
+		const saved = entries.filter((entry: any) => entry.customType === ENTRY_TYPE).pop() as { data?: unknown } | undefined;
+		const requiresReplan = !saved && entries.some((entry: any) => LEGACY_ENTRY_TYPES.has(entry.customType));
 		state = restoreState(saved?.data) ?? createWorkflowState();
-		if (pi.getFlag("workflow") === true) state.planning = true;
+		if (pi.getFlag("workflow") === true || requiresReplan) state.planning = true;
 		reloadContent(ctx);
 		rebuildOrchestrator();
 		if (state.planning) enablePlanning(ctx, false);
 		else update(ctx);
+		if (requiresReplan) ctx.ui.notify("This session contains a title-only workflow from an older format. Replanning is required because its detailed instructions cannot be recovered.", "warning");
 		const todo = currentTodo(state);
 		if (todo?.status === "awaiting-user") ctx.ui.notify(`Workflow resumed at todo ${todo.step}, awaiting your approval. Use /workflow review.`, "info");
 	});

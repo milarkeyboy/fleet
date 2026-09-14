@@ -42,7 +42,8 @@ test("reconstructs uncached diffs between human checkpoints", { skip: !hasGit },
 		const firstCheckpoint = await snapshotWorktree(cwd);
 		const todo: WorkflowTodo = {
 			step: 1,
-			text: "Task",
+			title: "Task",
+			instructions: ["Complete it."],
 			status: "awaiting-user",
 			attempts: 2,
 			automaticReviewCycles: 2,
