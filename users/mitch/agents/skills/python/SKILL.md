@@ -49,3 +49,18 @@ def good():
     """
     pass
 ```
+
+### Dictionaries
+
+Break dictionary definitions over multiple lines:
+
+```python
+# Don't do this
+f = { "foo": 3, "bar": 4 }
+
+# Do this instead
+f = {
+    "foo": 3,
+    "bar": 4,
+}
+```

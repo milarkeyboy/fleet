@@ -21,7 +21,7 @@ Unless explicitly asked:
 - Don't keep existing features alive if they're in conflict with the newly
   requested changes.
 - Prefer to just edit the code in place, because we don't want two or more ways
-  to do one thing.
+  to do one thing. Exceptions can apply to comments (see below).
 
 ### Writing Code
 
