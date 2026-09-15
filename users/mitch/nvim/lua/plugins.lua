@@ -30,6 +30,12 @@ require("nvim-tree").setup()
 require("snacks").setup({
   picker = {
     enabled = true,
+    -- Snacks has both a default and a Lua-specific symbol filter, so override
+    -- both to include every symbol kind unless one is explicitly filtered.
+    sources = {
+      lsp_symbols = { filter = { default = true, lua = true } },
+      lsp_workspace_symbols = { filter = { default = true, lua = true } },
+    },
     win = require("keymaps").snacks_picker_win,
   },
 })
