@@ -1,6 +1,10 @@
 { pkgs, ... }:
 
 {
+  imports = [
+    ./brave.nix
+  ];
+
   # Desktop environment.
   services.displayManager.sddm.enable = true;
   services.desktopManager.plasma6.enable = true;
@@ -30,9 +34,6 @@
 
   # Workstation packages are available to every user on interactive machines.
   environment.systemPackages = with pkgs; [
-    # Apps
-    brave
-
     # Command line utilities
     bat
     btop
