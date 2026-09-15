@@ -57,3 +57,11 @@ wilder.set_option('renderer', wilder.popupmenu_renderer({
   -- highlighter applies highlighting to the candidates
   highlighter = wilder.basic_highlighter(),
 }))
+
+-- Register Wilder's Python functions once Neovim defines the command.
+vim.api.nvim_create_autocmd('VimEnter', {
+  once = true,
+  callback = function()
+    vim.cmd.UpdateRemotePlugins()
+  end,
+})
