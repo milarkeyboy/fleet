@@ -5,6 +5,7 @@ vim.o.termguicolors = true
 vim.o.expandtab = true
 vim.o.shiftwidth = 4
 vim.o.tabstop = 4
+vim.opt.completeopt = { "menuone", "noselect", "popup" }
 
 -- Resize windows when neovim itself is resized:
 -- https://neovim.io/doc/user/autocmd/#VimResized

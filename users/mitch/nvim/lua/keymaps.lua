@@ -27,7 +27,7 @@ function M.setup()
   vim.keymap.set("n", "<leader>D", snacks_picker.diagnostics, { desc = "Diagnostics (workspace)" })
   vim.keymap.set("n", "gr", snacks_picker.lsp_references, { desc = "Find references" })
 
-  -- When an LSP is attached, we add keybindings for other LSP-related actions.
+  -- Configure completion and buffer-local keybindings when an LSP attaches.
   local group = vim.api.nvim_create_augroup("my.lsp.keymaps", { clear = true })
   vim.api.nvim_create_autocmd("LspAttach", {
     group = group,
@@ -36,6 +36,22 @@ function M.setup()
         vim.keymap.set("n", lhs, rhs, {
           buffer = event.buf,
           desc = desc,
+        })
+      end
+
+      -- Configure autocomplete provided that the LSP client supports it.
+      local client = assert(vim.lsp.get_client_by_id(event.data.client_id))
+      if client:supports_method("textDocument/completion") then
+        -- Enable completion
+        vim.lsp.completion.enable(true, client.id, event.buf, {
+          autotrigger = true,
+        })
+        -- Add a keymap for manually triggering it, since the built-in LSP
+        -- support won't trigger on regular characters (only special ones). If
+        -- I want to change that, I'll need another plugin (sigh).
+        vim.keymap.set("i", "<C-Space>", vim.lsp.completion.get, {
+          buffer = event.buf,
+          desc = "Trigger completion",
         })
       end
 
