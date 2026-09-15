@@ -23,6 +23,8 @@ function M.setup()
   vim.keymap.set("n", "<leader>s", snacks_picker.lsp_symbols, { desc = "Symbols (buffer)" })
   vim.keymap.set("n", "<leader>S", snacks_picker.lsp_workspace_symbols, { desc = "Symbols (workspace)" })
   vim.keymap.set("n", "<leader>b", snacks_picker.buffers, { desc = "Buffers" })
+  vim.keymap.set("n", "<leader>d", snacks_picker.diagnostics_buffer, { desc = "Diagnostics (buffer)" })
+  vim.keymap.set("n", "<leader>D", snacks_picker.diagnostics, { desc = "Diagnostics (workspace)" })
   vim.keymap.set("n", "gr", snacks_picker.lsp_references, { desc = "Find references" })
 
   -- When an LSP is attached, we add keybindings for other LSP-related actions.
@@ -41,6 +43,13 @@ function M.setup()
       map("gD", vim.lsp.buf.declaration, "Go to declaration")
       map("gi", vim.lsp.buf.implementation, "Go to implementation")
       map("K", vim.lsp.buf.hover, "Hover documentation")
+      map("gl", function()
+        vim.diagnostic.open_float({
+          scope = "cursor",
+          focus = false,
+          border = "rounded",
+        })
+      end, "Show diagnostic")
       map("<leader>r", vim.lsp.buf.rename, "Rename symbol")
       map("<leader>c", vim.lsp.buf.code_action, "Code action")
     end,
