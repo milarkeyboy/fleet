@@ -1,10 +1,7 @@
 -- Install + load plugins via Neovim's built-in plugin manager.
 vim.pack.add({
-  -- deps
-  "https://github.com/nvim-lua/plenary.nvim",
-
-  -- fuzzy finder
-  "https://github.com/nvim-telescope/telescope.nvim",
+  -- picker
+  "https://github.com/folke/snacks.nvim",
 
   -- file explorer
   "https://github.com/nvim-tree/nvim-tree.lua",
@@ -25,11 +22,10 @@ vim.pack.add({
 -- Plugin setups (safe to run after add(), because add() loads by default)
 require("nvim-tree").setup()
 
-require("telescope").setup({
-  defaults = {
-    layout_strategy = "flex",
-    sorting_strategy = "ascending",
-    mappings = require("keymaps").telescope,
+require("snacks").setup({
+  picker = {
+    enabled = true,
+    win = require("keymaps").snacks_picker_win,
   },
 })
 
