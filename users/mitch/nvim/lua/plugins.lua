@@ -1,6 +1,6 @@
 -- Install + load plugins via Neovim's built-in plugin manager.
 vim.pack.add({
-  -- picker
+  -- For things like the picker (LSP, FZF, etc.)
   "https://github.com/folke/snacks.nvim",
 
   -- file explorer
@@ -17,7 +17,12 @@ vim.pack.add({
 
   -- optional, but recommended highlight
   "https://github.com/nvim-treesitter/nvim-treesitter",
+
+  -- Colour scheme
+  "https://github.com/mofiqul/vscode.nvim",
 })
+
+vim.cmd.colorscheme("vscode")
 
 -- Plugin setups (safe to run after add(), because add() loads by default)
 require("nvim-tree").setup()
