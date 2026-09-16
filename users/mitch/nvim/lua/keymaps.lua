@@ -14,6 +14,10 @@ M.snacks_picker_win = {
 }
 
 function M.setup()
+  -- Convenience bindings
+  vim.keymap.set('i', '<C-BS>', '<C-W>', { noremap = true, silent = true })
+
+  -- Tree
   vim.keymap.set("n", "<leader>e", nvim_tree_api.tree.toggle, { desc = "Explorer" })
 
   -- Picker views
@@ -59,15 +63,17 @@ function M.setup()
       map("gD", vim.lsp.buf.declaration, "Go to declaration")
       map("gi", vim.lsp.buf.implementation, "Go to implementation")
       map("K", vim.lsp.buf.hover, "Hover documentation")
-      map("gl", function()
-        vim.diagnostic.open_float({
-          scope = "cursor",
-          focus = false,
-          border = "rounded",
-        })
-      end, "Show diagnostic")
+      map("<leader>w", function()
+          vim.diagnostic.open_float({
+            scope = "cursor",
+            focus = false,
+            border = "rounded",
+          })
+        end, "What's wrong 'ere? (Diagnostics on cursor)")
       map("<leader>r", vim.lsp.buf.rename, "Rename symbol")
       map("<leader>c", vim.lsp.buf.code_action, "Code action")
+      -- TODO: Use Lua API for this
+      map("<leader>h", "<cmd>LspClangdSwitchSourceHeader<cr>", "Switch source/header (clangd)")
     end,
   })
 end
