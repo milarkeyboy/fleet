@@ -25,7 +25,11 @@ vim.pack.add({
 vim.cmd.colorscheme("vscode")
 
 -- Plugin setups (safe to run after add(), because add() loads by default)
-require("nvim-tree").setup()
+require("nvim-tree").setup({
+  git = {
+    ignore = false,
+  },
+})
 
 require("snacks").setup({
   picker = {
