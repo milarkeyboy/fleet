@@ -21,5 +21,20 @@ return {
     ts = "python",
     lsp = "pyright",
   },
+
+  {
+    ts = { "markdown", "markdown_inline" },
+    lsp = "marksman",
+  },
+
+  {
+    ts = "lua",
+    lsp = "lua_ls",
+  },
+
+  {
+    ts = "meson",
+    lsp = "mesonlsp",
+  },
 }
 

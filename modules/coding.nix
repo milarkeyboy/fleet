@@ -18,6 +18,9 @@ in
     typescript-language-server
     rust-analyzer
     pyright
+    marksman
+    lua-language-server
+    mesonlsp
 
     # Other editor tools
     tree-sitter
