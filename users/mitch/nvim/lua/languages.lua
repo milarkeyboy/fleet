@@ -36,5 +36,10 @@ return {
     ts = "meson",
     lsp = "mesonlsp",
   },
+
+  {
+    ts = "nix",
+    lsp = "nixd",
+  },
 }
 
