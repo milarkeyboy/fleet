@@ -40,10 +40,18 @@ let
 
   preferences = pkgs.writeText "brave-preferences.json" (
     builtins.toJSON {
+      # Aggressive content filtering
       profile.content_settings.exceptions = {
         shieldsAds."*,*".setting = 2;
         trackers."*,*".setting = 2;
         cosmeticFiltering."*,*".setting.cosmeticFiltering = 1;
+      };
+
+      brave = {
+        # Show blank page on new tab
+        new_tab_page.show_options = 2;
+        # Obviously don't want that
+        rewards.show_brave_rewards_button_in_location_bar = false;
       };
     }
   );
@@ -99,6 +107,9 @@ in
     extensions = [
       # LastPass
       "hdokiejnpimakedhajhdlcegeplioahd"
+
+      # Vimium
+      "dbepggeogbaibhgnhhndojpepiihcmeb"
     ];
 
     extraOpts = {
