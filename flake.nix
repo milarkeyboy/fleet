@@ -20,6 +20,12 @@
     # - https://github.com/robbert-vdh/yabridge#performance-tuning
     # - https://github.com/robbert-vdh/yabridge/issues/469
     yabridge-flake.url = "github:noblepayne/yabridge-flake";
+
+    # TUI Spotify player
+    spotatui = {
+      url = "github:LargeModGames/spotatui";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =

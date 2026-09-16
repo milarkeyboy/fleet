@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, inputs, ... }:
 
 {
   imports = [
@@ -46,5 +46,8 @@
     unzip
     usbutils
     zip
+
+    # TUI Spotify player
+    inputs.spotatui.packages.${pkgs.stdenv.hostPlatform.system}.default
   ];
 }
