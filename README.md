@@ -81,3 +81,6 @@ sudo nixos-rebuild switch --flake .#$HOST
 - Game streaming from home pc to home server (e.g. sunshine/moonlight)
 - Remove dependence on the yabridge flake, build with 32-bit bridge suport
   for older plugins.
+- Manually refactor the readme for the pi extensions, and get an agent to
+  refactor/trim the code to match. Consider using ponytail to do it.
+- Allow specifying list of skills to make available to workflow subagents.

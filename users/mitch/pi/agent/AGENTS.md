@@ -6,6 +6,8 @@ When writing documentation or interacting in a discussion:
 
 - Be concise, avoiding unnecessary descriptors or flavour text.
 - Avoid deictic language or classic "LLM-speak".
+- Don't describe something by stating what it isn't; avoid statements like "X
+  is not a Y", and prefer "X is a Z because..."
 
 ## YAGNI
 
