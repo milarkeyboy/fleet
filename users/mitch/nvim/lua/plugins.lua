@@ -55,7 +55,7 @@ require("which-key").setup({
   delay = 0,
 })
 
-wilder = require('wilder')
+local wilder = require('wilder')
 wilder.setup({ modes = { ':', '/', '?' } })
 wilder.set_option('renderer', wilder.popupmenu_renderer({
   -- highlighter applies highlighting to the candidates
