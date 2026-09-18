@@ -44,10 +44,25 @@ require("snacks").setup({
   },
 })
 
--- Enable treesitter for each language
+-- Install parsers and enable Treesitter highlighting for each language.
+local treesitter = require('nvim-treesitter')
+local treesitter_filetypes = {}
+
 for _, lang in ipairs(require('languages')) do
-  require('nvim-treesitter').install(lang.ts)
+  treesitter.install(lang.ts)
+
+  local parsers = type(lang.ts) == 'table' and lang.ts or { lang.ts }
+  for _, parser in ipairs(parsers) do
+    vim.list_extend(treesitter_filetypes, vim.treesitter.language.get_filetypes(parser))
+  end
 end
+
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = treesitter_filetypes,
+  callback = function()
+    vim.treesitter.start()
+  end,
+})
 
 -- which-key: keybinding hints popup
 require("which-key").setup({
