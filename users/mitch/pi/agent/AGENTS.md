@@ -56,3 +56,10 @@ numbers".
 In satisfying this ethos, it is okay to violate the DRY principle and accept
 some duplication between test cases. Simplicity is king.
 
+For each test case, describe what it is the test is verifying in a
+comment/docstring/description (langauge dependent). Don't state what steps the
+test takes, but rather what behaviour is being verified.
+
+Test fixtures or suites should also have comments and/or documentation that
+describe their scope e.g. what parts of the code are covered by the test cases
+in the fixture.
