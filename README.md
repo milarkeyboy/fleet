@@ -68,6 +68,47 @@ To switch to the configuration and make it the default boot entry:
 sudo nixos-rebuild switch --flake .#$HOST
 ```
 
+## XLN Online Installer under Wine
+
+`modules/daw.nix` provides `wine-xln`. After rebuilding the system, run the
+Windows installer with:
+
+```sh
+wine-xln "$HOME/Downloads/XLN Online Installer.exe"
+```
+
+For subsequent launches:
+
+```sh
+wine-xln "$HOME/.wine/drive_c/Program Files/XLN Audio/XLN Online Installer/XLN Online Installer.exe"
+```
+
+The launcher uses the same Wine build as yabridge and defaults to `~/.wine`;
+`WINEPREFIX` can select another 64-bit prefix. It initialises/updates the prefix
+and replaces its three 64-bit `dxgi`, `d3d11`, and `d3d10core` DLLs with DXVK on
+each launch. Existing native versions of those DLLs are overwritten. DLL
+selection is set through the launch environment, inherited by XLN's child
+processes, rather than global registry overrides. DXVK logs go in the prefix.
+Close XLN before relaunching through the wrapper.
+
+### Why DXVK is needed
+
+Tested with Wine Staging 11.8 and DXVK 2.7.1: the downloaded installer 4.0.6
+updates to 5.0.0, then the new process hangs without showing a window. The
+updated executable uses JUCE 8.0.13. Wine's
+[`IDXGIOutput::WaitForVBlank`](https://github.com/wine-mirror/wine/blob/wine-11.8/dlls/dxgi/output.c)
+returns `E_NOTIMPL`. JUCE's
+[`VBlankThread`](https://github.com/juce-framework/JUCE/blob/8.0.13/modules/juce_gui_basics/native/juce_VBlank_windows.cpp)
+retries on failure without checking its exit flag, while its destructor waits
+for the thread to finish. Debugger stacks matched that loop and wait.
+
+DXVK implements the call. With its DLLs selected, the original installer
+successfully updated, restarted, and displayed the login screen. Authentication
+and product installation have not yet been verified. Disabling `d3d11` is not a
+workaround: the updated executable imports it directly and cannot load without
+it. Use the original download rather than manually launching the temporary
+`updateBinary` executable, which expects XLN's update context and arguments.
+
 ## TODO
 
 - Generate and review real hardware configurations for:

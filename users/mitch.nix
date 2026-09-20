@@ -13,9 +13,6 @@
     shell = pkgs.zsh;
   };
 
-  # Allow the DAW module to configure dotfiles (see modules/daw.nix).
-  fleet.daw.users = [ "mitch" ];
-
   home-manager.users.mitch = { config, ... }: {
     home.username = "mitch";
     home.homeDirectory = "/home/mitch";
