@@ -12,6 +12,7 @@ vim.api.nvim_create_autocmd("FileType", {
   pattern = "markdown",
   callback = function()
     vim.opt_local.textwidth = 80
+    -- Allow wrapping as I'm typing.
     vim.opt_local.formatoptions:append("t")
   end,
 })
