@@ -63,3 +63,7 @@ test takes, but rather what behaviour is being verified.
 Test fixtures or suites should also have comments and/or documentation that
 describe their scope e.g. what parts of the code are covered by the test cases
 in the fixture.
+
+Unless explicitly asked, don't add tests for things that aren't supported. Even
+in cases where you've taken functionality out or made a braking change, there's
+no need to test that the old way is no longer supported.
