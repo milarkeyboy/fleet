@@ -7,6 +7,15 @@ vim.o.shiftwidth = 4
 vim.o.tabstop = 4
 vim.opt.completeopt = { "menuone", "noselect", "popup" }
 
+-- Keep Markdown prose at a review-friendly line length while typing.
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "markdown",
+  callback = function()
+    vim.opt_local.textwidth = 80
+    vim.opt_local.formatoptions:append("t")
+  end,
+})
+
 -- Resize windows when neovim itself is resized:
 -- https://neovim.io/doc/user/autocmd/#VimResized
 vim.cmd(":autocmd VimResized * wincmd =")
