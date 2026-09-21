@@ -20,11 +20,22 @@ vim.pack.add({
 
   -- Colour scheme
   "https://github.com/mofiqul/vscode.nvim",
+  --
+  -- Git blame and working-tree change indicators
+  "https://github.com/lewis6991/gitsigns.nvim",
 })
 
 vim.cmd.colorscheme("vscode")
 
 -- Plugin setups (safe to run after add(), because add() loads by default)
+require("gitsigns").setup({
+  -- Show trailing blame and make it snappy.
+  current_line_blame = true,
+  current_line_blame_opts = {
+    delay = 0,
+  },
+})
+
 require("nvim-tree").setup({
   git = {
     ignore = false,

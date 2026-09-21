@@ -1,5 +1,9 @@
 {
   "plugins": {
+    "gitsigns.nvim": {
+      "rev": "8d79f2410c76e62b92e51c28c82e28c1c5a3daeb",
+      "src": "https://github.com/lewis6991/gitsigns.nvim"
+    },
     "nvim-lspconfig": {
       "rev": "ac9d2f7c4757db6320cab6697fe73e5e8adb2457",
       "src": "https://github.com/neovim/nvim-lspconfig"
