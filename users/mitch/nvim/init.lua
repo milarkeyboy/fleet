@@ -37,3 +37,8 @@ vim.opt.title = true
 -- Set the title string to the current working directory. This is to allow
 -- identifying editor windows by their workspace.
 vim.opt.titlestring = "nvim: " .. vim.fn.fnamemodify(vim.fn.getcwd(), ":t")
+
+-- Spell checking. Maybe I'll look at migrating over to CSpell later.
+vim.opt.spell = true
+vim.opt.spelllang = { "en_gb" }
+vim.opt.spelloptions:append("camel")
