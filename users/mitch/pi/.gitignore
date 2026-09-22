@@ -8,9 +8,11 @@ sessions/
 pi-debug.log
 .DS_Store
 
-# Pi needs to stash its own binaries sometimes.
+# Pi needs to stash its own binaries and installed packages sometimes.
 bin
+agent/npm/
 
-# Offline cache of available models.
+# Offline caches of available models and MCP tools.
 models-store.json
+agent/mcp-cache.json
 

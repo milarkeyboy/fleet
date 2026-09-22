@@ -8,6 +8,9 @@
     "+extensions/bash-policy/index.ts",
     "-extensions/gondolin/index.ts"
   ],
+  "packages": [
+    "npm:pi-mcp-adapter@2.36.0"
+  ],
   "modelThinkingLevels": {
     "openai-codex/gpt-5.6-sol": "high"
   },

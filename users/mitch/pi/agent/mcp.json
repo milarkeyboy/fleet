@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "gitlab": {
+      "url": "https://gitlab.com/api/v4/mcp",
+      "auth": "oauth",
+      "lifecycle": "lazy",
+      "approveTools": false,
+      "directTools": false,
+      "includeTools": [
+        "get_artifact_file",
+        "get_job",
+        "get_mcp_server_version",
+        "get_merge_request",
+        "get_merge_request_commits",
+        "get_merge_request_conflicts",
+        "get_merge_request_diffs",
+        "get_merge_request_notes",
+        "get_merge_request_pipelines",
+        "get_pipeline",
+        "get_pipeline_jobs",
+        "get_project",
+        "get_saved_view_work_items",
+        "get_vulnerability",
+        "get_work_item",
+        "get_work_item_types",
+        "list_groups",
+        "list_merge_requests",
+        "list_pipelines",
+        "list_projects",
+        "list_releases",
+        "list_vulnerabilities",
+        "list_wiki_pages",
+        "list_work_items",
+        "search",
+        "search_labels",
+        "semantic_search"
+      ]
+    }
+  }
+}
