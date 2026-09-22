@@ -13,7 +13,7 @@ import { clearWorkflowUi, formatWorkflowDiff, todoSummary, updateWorkflowUi, wor
 
 const ENTRY_TYPE = "workflow-state-v5";
 const LEGACY_ENTRY_TYPES = new Set(["workflow-state-v1", "workflow-state-v2", "workflow-state-v3", "workflow-state-v4"]);
-const QUESTIONNAIRE_TOOL = "workflow_questionnaire";
+const QUESTIONNAIRE_TOOL = "questionnaire";
 const SUBMIT_PLAN_TOOL = "workflow_submit_plan";
 const DIFF_MESSAGE_TYPE = "workflow-diff";
 const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls", QUESTIONNAIRE_TOOL, SUBMIT_PLAN_TOOL];
@@ -216,37 +216,6 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		renderResult(result, _options, _theme) {
 			const details = result.details as { plan?: string } | undefined;
 			return new Text(details?.plan ?? "Workflow plan was not captured.", 0, 0);
-		},
-	});
-
-	pi.registerTool({
-		name: QUESTIONNAIRE_TOOL,
-		label: "Workflow Questionnaire",
-		description: "Ask one or more decision-point questions while preparing a workflow plan. Use for important scope, design, compatibility, risk, language, or testing choices.",
-		executionMode: "sequential",
-		parameters: Type.Object({ questions: Type.Array(Type.Object({
-			id: Type.String(),
-			prompt: Type.String(),
-			options: Type.Array(Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) })),
-			allowOther: Type.Optional(Type.Boolean()),
-		})) }),
-		async execute(_id, params, _signal, _onUpdate, ctx) {
-			if (!ctx.hasUI) return { content: [{ type: "text", text: "Workflow questionnaire unavailable without an interactive UI." }], details: { cancelled: true } };
-			const answers: Array<{ id: string; answer: string; custom: boolean }> = [];
-			for (const question of params.questions) {
-				const displayed = question.options.map((option: { label: string; description?: string }) => option.description ? `${option.label} — ${option.description}` : option.label);
-				if (question.allowOther !== false) displayed.push("Type a custom answer…");
-				const selected = await ctx.ui.select(question.prompt, displayed);
-				if (!selected) return { content: [{ type: "text", text: "User cancelled the workflow questionnaire." }], details: { cancelled: true, answers } };
-				if (selected === "Type a custom answer…") {
-					const custom = (await ctx.ui.input(question.prompt))?.trim() ?? "";
-					answers.push({ id: question.id, answer: custom || "(no answer)", custom: true });
-				} else {
-					const index = displayed.indexOf(selected);
-					answers.push({ id: question.id, answer: question.options[index]?.label ?? selected, custom: false });
-				}
-			}
-			return { content: [{ type: "text", text: answers.map((answer) => `${answer.id}: ${answer.custom ? "user wrote" : "user selected"}: ${answer.answer}`).join("\n") }], details: { cancelled: false, answers } };
 		},
 	});
 

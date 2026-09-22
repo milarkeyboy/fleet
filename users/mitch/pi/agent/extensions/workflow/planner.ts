@@ -74,6 +74,7 @@ export function planFormatInstructions(skills: Record<string, MarkdownContent> =
 		.map((skill) => `- ${skill.name}: ${skill.description}`);
 	return `
 Workflow plan submission:
+- Use questionnaire for important scope, design, compatibility, risk, language, or testing decisions.
 - Submit every final plan with workflow_submit_plan instead of writing a Markdown plan.
 - Give each todo a concise title and an instructions array containing every requirement the implementer and reviewer must follow.
 - Todos must be independently implementable and reviewable.

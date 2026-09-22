@@ -17,7 +17,7 @@ Codex-style plan mode for pi.
 
 When plan mode is enabled, pi disables `edit` and `write`, blocks non-read-only
 bash commands, and gives the model a planning prompt. The model is instructed to
-use the `plan_questionnaire` tool when it reaches important decision points.
+use the shared `questionnaire` tool when it reaches important decision points.
 
 Once the model outputs a numbered `Plan:` section, the extension extracts it
 into todos. Accepting execution restores normal tools and tracks progress. The

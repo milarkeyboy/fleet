@@ -75,7 +75,7 @@ Planning uses the top-level session's selected model, conversation, context
 files, and normal system prompt. While planning is active, the extension appends
 the bundled `content/planner.md`, typed-submission instructions, and the names
 and descriptions of currently discovered skills. Planning remains read-only,
-with `workflow_questionnaire` available for important decisions.
+with the shared `questionnaire` tool available for important decisions.
 
 The planner submits its final plan through `workflow_submit_plan` as native todo
 objects containing a title, an instructions array, and an optional primary

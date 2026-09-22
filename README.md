@@ -127,8 +127,6 @@ it. Use the original download rather than manually launching the temporary
   refactor/trim the code to match. Consider using ponytail to do it.
 - Allow specifying list of skills to make available to workflow subagents.
 - Pi extensions:
-    - Move questionnaire functionality into its own extension.
-    - Bring the planning functionality into its own extension.
     - Constrain agents such that they cannot edit Markdown.
     - Manually edit the READMEs of all extensions, and get an agent to trim off
       the unnecessary functionality.

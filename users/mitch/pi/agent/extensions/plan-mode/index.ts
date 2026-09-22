@@ -8,12 +8,11 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Key } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
 import { extractTodoItems, isSafeReadOnlyCommand, markCompletedSteps, type TodoItem } from "./utils.ts";
 
-const PLAN_TOOL = "plan_questionnaire";
+const QUESTIONNAIRE_TOOL = "questionnaire";
 const PLAN_DISABLED_TOOLS = new Set(["edit", "write"]);
-const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", PLAN_TOOL];
+const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", QUESTIONNAIRE_TOOL];
 
 interface PlanModeState {
   enabled: boolean;
@@ -116,53 +115,6 @@ export default function planMode(pi: ExtensionAPI): void {
     );
   }
 
-  pi.registerTool({
-    name: PLAN_TOOL,
-    label: "Plan Questionnaire",
-    description:
-      "Ask the user one or more multiple-choice questions during plan mode when an important requirement, scope, risk, or implementation decision needs user input. Always provide clear options and allow a custom answer when appropriate.",
-    executionMode: "sequential",
-    parameters: Type.Object({
-      questions: Type.Array(
-        Type.Object({
-          id: Type.String({ description: "Stable short id, e.g. scope, api, risk" }),
-          prompt: Type.String({ description: "Question to ask the user" }),
-          options: Type.Array(
-            Type.Object({
-              label: Type.String({ description: "Option shown to the user" }),
-              description: Type.Optional(Type.String({ description: "Why/when this option is appropriate" })),
-            }),
-          ),
-          allowOther: Type.Optional(Type.Boolean({ description: "Offer a free-form answer option; defaults to true" })),
-        }),
-      ),
-    }),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      if (!ctx.hasUI) {
-        return { content: [{ type: "text", text: "Questionnaire unavailable: no interactive UI." }], details: { cancelled: true } };
-      }
-
-      const answers: Array<{ id: string; answer: string; custom: boolean }> = [];
-      for (const q of params.questions) {
-        const options = q.options.map((o: { label: string; description?: string }) => o.description ? `${o.label} — ${o.description}` : o.label);
-        if (q.allowOther !== false) options.push("Type a custom answer…");
-        const choice = await ctx.ui.select(q.prompt, options);
-        if (!choice) return { content: [{ type: "text", text: "User cancelled the questionnaire." }], details: { cancelled: true, answers } };
-        if (choice === "Type a custom answer…") {
-          const custom = await ctx.ui.input(q.prompt);
-          answers.push({ id: q.id, answer: custom?.trim() || "(no answer)", custom: true });
-        } else {
-          answers.push({ id: q.id, answer: choice.replace(/ — .*/, ""), custom: false });
-        }
-      }
-
-      return {
-        content: [{ type: "text", text: answers.map((a) => `${a.id}: ${a.custom ? "user wrote" : "user selected"}: ${a.answer}`).join("\n") }],
-        details: { cancelled: false, answers },
-      };
-    },
-  });
-
   pi.registerCommand("plan", {
     description: "Toggle/read Codex-style plan mode. Args: on, off, status, execute, clear",
     handler: async (args, ctx) => {
@@ -231,7 +183,7 @@ Rules:
 - Do not call edit/write or otherwise modify files.
 - Bash is limited to read-only inspection commands.
 - Identify important decision points: scope ambiguity, API/design choices, migrations, compatibility risks, test strategy, destructive steps, or user preference tradeoffs.
-- At those decision points, use the ${PLAN_TOOL} tool with concise options. Prefer batching related questions.
+- At those decision points, use the ${QUESTIONNAIRE_TOOL} tool with concise options. Prefer batching related questions.
 - Once enough information is gathered, produce a final numbered plan under exactly this header:
 
 Plan:

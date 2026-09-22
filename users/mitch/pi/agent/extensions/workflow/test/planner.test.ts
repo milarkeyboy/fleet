@@ -95,6 +95,7 @@ test("planning instructions require typed submission and list skills", () => {
 	const plannerPrompt = "# Planner\n\nCreate independently reviewable todos.";
 	const instructions = planFormatInstructions(skills);
 	assert.equal(appendPlanningInstructions(normalPrompt, plannerPrompt, skills), `${normalPrompt}\n\n${plannerPrompt}\n\n${instructions}`);
+	assert.match(instructions, /Use questionnaire for important scope/);
 	assert.match(instructions, /workflow_submit_plan/);
 	assert.match(instructions, /instructions array containing every requirement/);
 	assert.match(instructions, /Use exact skill names/);
