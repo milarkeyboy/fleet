@@ -68,6 +68,7 @@ To switch to the configuration and make it the default boot entry:
 sudo nixos-rebuild switch --flake .#$HOST
 ```
 
+<!-- TODO: Rewrite this, as it was AI generated. -->
 ## XLN Online Installer under Wine
 
 `modules/daw.nix` provides `wine-xln`. After rebuilding the system, run the
@@ -120,8 +121,14 @@ it. Use the original download rather than manually launching the temporary
 - Add apps for work laptop, e.g. Microsoft teams (PWA?), with working screen
   share
 - Game streaming from home pc to home server (e.g. sunshine/moonlight)
-- Remove dependence on the yabridge flake, build with 32-bit bridge suport
+- Remove dependence on the yabridge flake, build with 32-bit bridge support
   for older plugins.
 - Manually refactor the readme for the pi extensions, and get an agent to
   refactor/trim the code to match. Consider using ponytail to do it.
 - Allow specifying list of skills to make available to workflow subagents.
+- Pi extensions:
+    - Move questionnaire functionality into its own extension.
+    - Bring the planning functionality into its own extension.
+    - Constrain agents such that they cannot edit Markdown.
+    - Manually edit the READMEs of all extensions, and get an agent to trim off
+      the unnecessary functionality.
