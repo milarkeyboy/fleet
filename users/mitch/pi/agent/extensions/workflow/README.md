@@ -1,6 +1,9 @@
 # Workflow: planned implement/review/human cycles for pi
 
-`/workflow` turns a plan into sequential, isolated implementer and reviewer runs, then pauses for human approval after every todo. Planning remains conversational in the top-level pi session; the extension does not use a planner subagent or planner role.
+`/workflow` turns a plan into sequential, isolated implementer and reviewer
+runs, then pauses for human approval after every todo. Planning remains
+conversational in the top-level pi session; the extension does not use a planner
+subagent or planner role.
 
 ## Lifecycle
 
@@ -14,7 +17,8 @@ conversational planning
   → next todo
 ```
 
-A todo is complete after review and explicit human approval, or when the user explicitly marks it completed manually by forcing execution from a later todo.
+A todo is complete after review and explicit human approval, or when the user
+explicitly marks it completed manually by forcing execution from a later todo.
 
 ## Commands
 
@@ -50,23 +54,49 @@ Both subagent roles require explicit global model assignments before execution:
 /workflow models
 ```
 
-Configuration is stored in pi's agent directory at `workflow/config.json` (normally `~/.pi/agent/workflow/config.json`). It is deliberately outside repositories and portable Markdown. Subagents never fall back to the top-level model or thinking level.
+Configuration is stored in pi's agent directory at `workflow/config.json`
+(normally `~/.pi/agent/workflow/config.json`). It is deliberately outside
+repositories and portable Markdown. Subagents never fall back to the top-level
+model or thinking level.
 
-Before changing todo state, the extension creates a subprocess-equivalent model registry and checks both model availability and authentication. Models registered only by extensions are unavailable because subagents use `--no-extensions`. A top-level `--api-key` is runtime-only and is not inherited; credentials must be available through `/login`/`auth.json`, `models.json`, or the inherited environment.
+Before changing todo state, the extension creates a subprocess-equivalent model
+registry and checks both model availability and authentication. Models
+registered only by extensions are unavailable because subagents use
+`--no-extensions`. A top-level `--api-key` is runtime-only and is not inherited;
+credentials must be available through `/login`/`auth.json`, `models.json`, or
+the inherited environment.
 
-The exact model and thinking level used are recorded with each implementation and review artifact and shown in todo summaries.
+The exact model and thinking level used are recorded with each implementation
+and review artefact and shown in todo summaries.
 
 ## Planning and optional skills
 
-Planning uses the top-level session's selected model, conversation, context files, and normal system prompt. While planning is active, the extension appends the bundled `content/planner.md`, typed-submission instructions, and the names and descriptions of currently discovered skills. Planning remains read-only, with `workflow_questionnaire` available for important decisions.
+Planning uses the top-level session's selected model, conversation, context
+files, and normal system prompt. While planning is active, the extension appends
+the bundled `content/planner.md`, typed-submission instructions, and the names
+and descriptions of currently discovered skills. Planning remains read-only,
+with `workflow_questionnaire` available for important decisions.
 
-The planner submits its final plan through `workflow_submit_plan` as native todo objects containing a title, an instructions array, and an optional primary skill. The extension does not parse an assistant Markdown response. Every requirement needed during implementation or review must be included in the instructions array because subagents do not inherit the planning conversation.
+The planner submits its final plan through `workflow_submit_plan` as native todo
+objects containing a title, an instructions array, and an optional primary
+skill. The extension does not parse an assistant Markdown response. Every
+requirement needed during implementation or review must be included in the
+instructions array because subagents do not inherit the planning conversation.
 
-One deterministic formatter renders those objects as the canonical plan shown by the submission tool, `/workflow status`, and `/workflow todos`. The same formatter supplies the complete plan and current todo to both subagent roles. Role protocols, workflow statuses, human feedback, implementation results, and diffs are additional context rather than part of the canonical plan. This guarantees delivery of the reviewed plan text, not model compliance with it.
+One deterministic formatter renders those objects as the canonical plan shown by
+the submission tool, `/workflow status`, and `/workflow todos`. The same
+formatter supplies the complete plan and current todo to both subagent roles.
+Role protocols, workflow statuses, human feedback, implementation results, and
+diffs are additional context rather than part of the canonical plan. This
+guarantees delivery of the reviewed plan text, not model compliance with it.
 
-The planner is told to leave the primary skill unset when no discovered skill applies. Untagged todos execute normally. Skill values must use exact discovered names. An unknown explicit skill must be resolved interactively or with `/workflow skill N NAME|none` before execution.
+The planner is told to leave the primary skill unset when no discovered skill
+applies. Untagged todos execute normally. Skill values must use exact discovered
+names. An unknown explicit skill must be resolved interactively or with
+`/workflow skill N NAME|none` before execution.
 
-Workflow state created before the native todo format cannot recover discarded instructions and must be replanned.
+Workflow state created before the native todo format cannot recover discarded
+instructions and must be re planned.
 
 ## Portable roles and Agent Skills
 
@@ -80,16 +110,21 @@ Run `/workflow init` in a trusted project to create:
         └── reviewer.md
 ```
 
-Role files are plain Markdown prompts with no frontmatter, so they can also be supplied directly to other subagent harnesses.
+Role files are plain Markdown prompts with no frontmatter, so they can also be
+supplied directly to other subagent harnesses.
 
-Add any standard Agent Skill at `~/.agents/skills/<name>/SKILL.md` or `.agents/skills/<name>/SKILL.md`; recursive discovery makes it immediately available without TypeScript changes.
+Add any standard Agent Skill at `~/.agents/skills/<name>/SKILL.md` or
+`.agents/skills/<name>/SKILL.md`; recursive discovery makes it immediately
+available without TypeScript changes.
 
 Discovery precedence is:
 
 1. user `~/.agents/skills/`
 2. trusted project `.agents/skills/`
 
-Project skills override user skills with the same canonical name. `/workflow roles` reports overrides, invalid skills, and duplicate names. Project content is ignored until the project is trusted.
+Project skills override user skills with the same canonical name. `/workflow
+roles` reports overrides, invalid skills, and duplicate names. Project content
+is ignored until the project is trusted.
 
 ## Execution and policy
 
@@ -126,24 +161,60 @@ Every implementer and reviewer is a fresh pi JSON-mode subprocess launched with:
 - `--no-prompt-templates`
 - the role's required configured model and thinking level
 
-Subagents retain Pi's normal context-file discovery, including applicable user and project `AGENTS.md` files. Both roles receive the complete canonical workflow plan and a separate status list marking each todo as approved, completed manually, current, upcoming, or aborted. The plan is a scope boundary: implementers must not absorb upcoming work, and reviewers must flag scope leakage without requesting work assigned to later todos.
+Subagents retain Pi's normal context-file discovery, including applicable user
+and project `AGENTS.md` files. Both roles receive the complete canonical
+workflow plan and a separate status list marking each todo as approved,
+completed manually, current, upcoming, or aborted. The plan is a scope boundary:
+implementers must not absorb upcoming work, and reviewers must flag scope
+leakage without requesting work assigned to later todos.
 
-In addition, the implementer receives its role, selected primary skill, current todo, relevant paths, concise prerequisite handoffs, and revision feedback. The reviewer receives its role, the selected primary skill, the latest human feedback, the revision-specific diff, implementation summary, and validation results. Explicit human revision requirements can override the plan boundary and remain in both roles' context through automatic review retries. Reviewer tools exclude `edit`, `write`, and `bash`.
+In addition, the implementer receives its role, selected primary skill, current
+todo, relevant paths, concise prerequisite handoffs, and revision feedback. The
+reviewer receives its role, the selected primary skill, the latest human
+feedback, the revision-specific diff, implementation summary, and validation
+results. Explicit human revision requirements can override the plan boundary and
+remain in both roles' context through automatic review retries. Reviewer tools
+exclude `edit`, `write`, and `bash`.
 
 ## Git, review, and persistence
 
-Todos run sequentially in the current working tree. In Git repositories, before/after snapshots use a temporary index and include tracked and untracked non-ignored files without changing the real index or worktree. Outside Git, execution still works but per-todo diffs are unavailable.
+Todos run sequentially in the current working tree. In Git repositories,
+before/after snapshots use a temporary index and include tracked and untracked
+non-ignored files without changing the real index or worktree. Outside Git,
+execution still works but per-todo diffs are unavailable.
 
-`/workflow execute N` forces execution from later pending todo `N`. Any unfinished earlier todos are persisted as `completed-manually`, the active implementer or reviewer is terminated, and execution starts at `N` after subprocess cleanup. This is intended for changes made directly by the user; manually completed todos remain visible to later subagents but have no generated implementation handoff.
+`/workflow execute N` forces execution from later pending todo `N`. Any
+unfinished earlier todos are persisted as `completed-manually`, the active
+implementer or reviewer is terminated, and execution starts at `N` after
+subprocess cleanup. This is intended for changes made directly by the user;
+manually completed todos remain visible to later subagents but have no generated
+implementation handoff.
 
-A reviewer returns `approve`, `request_changes`, or `escalate`. The first rejection receives one automatic revision and second review; another rejection escalates to the human checkpoint. Human feedback starts a fresh bounded cycle.
+A reviewer returns `approve`, `request_changes`, or `escalate`. The first
+rejection receives one automatic revision and second review; another rejection
+escalates to the human checkpoint. Human feedback starts a fresh bounded cycle.
 
-Every acceptance checkpoint summary includes the chronological history for that todo: human feedback followed by the implementer and reviewer response for each revision, plus the files changed in each revision. This history is retained across session restarts, so later feedback rounds do not hide earlier summaries.
+Every acceptance checkpoint summary includes the chronological history for that
+todo: human feedback followed by the implementer and reviewer response for each
+revision, plus the files changed in each revision. This history is retained
+across session restarts, so later feedback rounds do not hide earlier summaries.
 
-Reviewer subagents receive only the current automatic revision's diff. At human acceptance, Inspect todo diff and `/workflow diff` show the net Git diff since the previous human checkpoint. The first checkpoint starts at the todo's initial baseline; human feedback starts a new checkpoint before the next implementer runs. The human therefore sees changes from every automatic implement/review cycle since they last reviewed or supplied feedback. These checkpoint diffs are persisted, and older sessions reconstruct them from their retained tree snapshots when possible.
+Reviewer subagents receive only the current automatic revision's diff. At human
+acceptance, Inspect todo diff and `/workflow diff` show the net Git diff since
+the previous human checkpoint. The first checkpoint starts at the todo's initial
+baseline; human feedback starts a new checkpoint before the next implementer
+runs. The human therefore sees changes from every automatic implement/review
+cycle since they last reviewed or supplied feedback. These checkpoint diffs are
+persisted, and older sessions reconstruct them from their retained tree
+snapshots when possible.
 
-Versioned session entries persist todos, primary skills, chronological revision summaries, model records, review findings, pending human approval, and manual completion state.
+Versioned session entries persist todos, primary skills, chronological revision
+summaries, model records, review findings, pending human approval, and manual
+completion state.
 
 ## Security
 
-Repository-controlled planner prompts, roles, and skills are instructions and may include executable helpers. Project content is loaded only for trusted projects. Review shared Markdown before use. Implementers have normal write and shell tools; reviewers are hard-limited to read/search tools.
+Repository-controlled planner prompts, roles, and skills are instructions and
+may include executable helpers. Project content is loaded only for trusted
+projects. Review shared Markdown before use. Implementers have normal write and
+shell tools; reviewers are hard-limited to read/search tools.

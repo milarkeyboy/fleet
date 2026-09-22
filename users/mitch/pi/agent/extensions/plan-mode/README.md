@@ -13,12 +13,17 @@ Codex-style plan mode for pi.
 - `/todos` shows the todo list
 - `Ctrl+Alt+P` toggles plan mode
 
-## Behavior
+## Behaviour
 
-When plan mode is enabled, pi disables `edit` and `write`, blocks non-read-only bash commands, and gives the model a planning prompt. The model is instructed to use the `plan_questionnaire` tool when it reaches important decision points.
+When plan mode is enabled, pi disables `edit` and `write`, blocks non-read-only
+bash commands, and gives the model a planning prompt. The model is instructed to
+use the `plan_questionnaire` tool when it reaches important decision points.
 
-Once the model outputs a numbered `Plan:` section, the extension extracts it into todos. Accepting execution restores normal tools and tracks progress. The model marks items complete by including `[DONE:n]` in assistant responses.
+Once the model outputs a numbered `Plan:` section, the extension extracts it
+into todos. Accepting execution restores normal tools and tracks progress. The
+model marks items complete by including `[DONE:n]` in assistant responses.
 
 ## Startup
 
-Use `pi --plan` to start directly in plan mode, or enable it any time with `/plan`.
+Use `pi --plan` to start directly in plan mode, or enable it any time with
+`/plan`.
