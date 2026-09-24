@@ -110,6 +110,28 @@ workaround: the updated executable imports it directly and cannot load without
 it. Use the original download rather than manually launching the temporary
 `updateBinary` executable, which expects XLN's update context and arguments.
 
+<!-- TODO: Document desktop selection through modules/desktop-environment/kde.nix
+and sway.nix: desktop selects Sway; both laptops select KDE. Shared defaults live
+under /etc and session services run per user; Home Manager remains unchanged.
+Recommend a shortcut reference covering launching, workspaces, window selection,
+clipboard selection/clearing, screenshots, locking and the session menu. Explain
+personal overrides and the need to retain /etc/sway/config.d/* integration.
+Document desktop.nix's single-monitor 3840x2160@60Hz, scale 1.45 settings, output
+identification with swaymsg -t get_outputs, fractional-scale XWayland blurring,
+and console font sizing for tuigreet.
+Explain session-only clipboard history, five-minute locking, ten-minute display
+power-off, idle inhibition, and locking before suspend. Note GNOME Keyring's
+password-login unlocking and separate migration of existing KDE wallet secrets.
+Add a runtime checklist for NVIDIA rendering, login/logout, applications, display
+scaling, clipboard isolation, window switching, lock/resume, keyring, removable
+media and browser screen sharing (the wlroots portal shares outputs).
+Recommend building before activation, retaining a known-working boot generation,
+and testing from a TTY after saving work: changing display managers may interrupt
+the graphical session. Explain rebooting into the previous generation to recover;
+avoid switch/garbage collection until the trial succeeds. Update the Sway TODO
+below once the runtime trial has passed.
+-->
+
 ## TODO
 
 - Generate and review real hardware configurations for:

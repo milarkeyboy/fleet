@@ -5,6 +5,7 @@
     ./hardware-configurations/laptop.nix
     ./modules/base.nix
     ./modules/workstation.nix
+    ./modules/desktop-environment/kde.nix
     ./users/mitch.nix
   ];
 

@@ -1,0 +1,34 @@
+* {
+    font-family: "JetBrainsMono Nerd Font Mono";
+    font-size: 13px;
+    min-height: 0;
+}
+
+window#waybar {
+    background: #20242b;
+    color: #eeeeee;
+}
+
+#workspaces button {
+    padding: 0 8px;
+    color: #eeeeee;
+    border-radius: 0;
+}
+
+#workspaces button.focused {
+    background: #356859;
+}
+
+#workspaces button.urgent,
+#battery.critical {
+    background: #9b3434;
+}
+
+#mode, #window, #pulseaudio, #network, #bluetooth,
+#battery, #backlight, #idle_inhibitor, #tray, #clock {
+    padding: 0 8px;
+}
+
+#idle_inhibitor.activated {
+    color: #e5c07b;
+}

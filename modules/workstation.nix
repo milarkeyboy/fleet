@@ -5,10 +5,6 @@
     ./brave.nix
   ];
 
-  # Desktop environment.
-  services.displayManager.sddm.enable = true;
-  services.desktopManager.plasma6.enable = true;
-
   # Devices and peripherals.
   hardware.bluetooth.enable = true;
   services.blueman.enable = true;
