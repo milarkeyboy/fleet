@@ -12,6 +12,11 @@ in
     # Note: tree-sitter needs a C compiler to exist.
     gcc
 
+    # Node + npm
+    # Note: this is needed to use pi extensions (see
+    # users/mitch/pi/agent/settings.json)
+    nodejs_latest
+
     # LSPs
     clang-tools
     nixd
