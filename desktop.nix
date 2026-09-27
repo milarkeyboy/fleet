@@ -23,7 +23,7 @@
   # TODO: Check the scaling settings, because Reaper has blurry text and I
   # don't remember KDE being like that.
   environment.etc."sway/config.d/outputs.conf".text = ''
-    output * mode 3840x2160@60Hz scale 1.45
+    output * mode 3840x2160@60Hz scale 1.5
   '';
 
   # The TUI greeter uses the console font rather than Wayland output scaling.
