@@ -7,7 +7,7 @@
     ./modules/base.nix
     ./modules/daw.nix
     ./modules/workstation.nix
-    ./modules/desktop-environment/sway.nix
+    ./modules/desktop-environment/hyprland.nix
     ./modules/coding.nix
     ./modules/gaming.nix
 
@@ -16,14 +16,9 @@
 
   networking.hostName = "desktop";
 
-  # The proprietary NVIDIA driver requires an explicit Sway opt-in.
-  programs.sway.extraOptions = [ "--unsupported-gpu" ];
-
   # This host has one 4K display. Use its connector name if more are added.
-  # TODO: Check the scaling settings, because Reaper has blurry text and I
-  # don't remember KDE being like that.
-  environment.etc."sway/config.d/outputs.conf".text = ''
-    output * mode 3840x2160@60Hz scale 1.5
+  environment.etc."xdg/hypr/conf.d/outputs.conf".text = ''
+    monitor = , 3840x2160@60, auto, 1.5
   '';
 
   # The TUI greeter uses the console font rather than Wayland output scaling.
