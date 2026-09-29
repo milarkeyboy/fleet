@@ -110,9 +110,6 @@ in
 
       # Vimium
       "dbepggeogbaibhgnhhndojpepiihcmeb"
-      # Vimium new tab page, to let the hotkeys work without needing to access
-      # their own new page URL pointing to their GitHub.
-      "leohhkagdnmgbpfbnflhjmnpcjpcjmgm"
     ];
 
     extraOpts = {
