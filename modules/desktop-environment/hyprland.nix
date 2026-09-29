@@ -95,8 +95,8 @@ in
   ];
 
   environment.etc = {
-    "xdg/hypr/hyprland.conf".source = ./hyprland/config;
-    "xdg/hypr/conf.d/default.conf".text = "";
+    "xdg/hypr/hyprland.lua".source = ./hyprland/config.lua;
+    "xdg/hypr/conf.d/outputs.lua".text = lib.mkDefault "";
     "xdg/gtk-3.0/settings.ini".text = ''
       [Settings]
       gtk-cursor-theme-name=Adwaita

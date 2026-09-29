@@ -17,8 +17,8 @@
   networking.hostName = "desktop";
 
   # This host has one 4K display. Use its connector name if more are added.
-  environment.etc."xdg/hypr/conf.d/outputs.conf".text = ''
-    monitor = , 3840x2160@60, auto, 1.5
+  environment.etc."xdg/hypr/conf.d/outputs.lua".text = ''
+    hl.monitor({ output = "", mode = "3840x2160@60", position = "auto", scale = 1.5 })
   '';
 
   # The TUI greeter uses the console font rather than Wayland output scaling.
