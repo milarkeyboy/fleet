@@ -1,5 +1,3 @@
-# Keep familiar desktop bindings while using Hyprland's native workspace,
-# grouping and session behaviour.
 $mod = SUPER
 $term = uwsm app -- foot
 $menu = uwsm app -- rofi -show drun
@@ -8,32 +6,20 @@ $lock = hyprlock -c /etc/xdg/hypr/hyprlock.conf
 
 monitor = , preferred, auto, 1
 xwayland {
+    # Avoid ugly interpolation by allowing X11 windows to scale themselves.
     force_zero_scaling = true
 }
 
 exec-once = hyprctl setcursor Adwaita 24
 
 general {
-    gaps_in = 5
-    gaps_out = 10
-    border_size = 2
+    gaps_in = 0
+    gaps_out = 0
+    border_size = 4
     col.active_border = rgb(356859)
     col.inactive_border = rgb(20242b)
     layout = dwindle
     resize_on_border = true
-}
-
-decoration {
-    rounding = 6
-    active_opacity = 1
-    inactive_opacity = 0.96
-
-    shadow {
-        enabled = true
-        range = 12
-        render_power = 3
-        color = rgba(00000055)
-    }
 }
 
 animations {
@@ -41,7 +27,8 @@ animations {
 }
 
 dwindle {
-    preserve_split = true
+    # Split on the right or bottom
+    force_split = 2
 }
 
 group {
@@ -57,37 +44,30 @@ misc {
 
 input {
     # Get rid of this awful auto change focus crap.
-    follow_mouse = 0
+    follow_mouse = 2
     float_switch_override_focus = 0
-
-    touchpad {
-        natural_scroll = true
-        tap-to-click = true
-    }
 }
 
 bind = $mod, RETURN, exec, $term
 bind = $mod, D, exec, $menu
 bind = ALT, SPACE, exec, $menu
-bind = $mod CTRL, E, exec, $files
 bind = $mod SHIFT, Q, killactive
 bind = $mod SHIFT, C, exec, hyprctl reload
-bind = $mod, P, cyclenext
-bind = $mod, P, bringactivetotop
 bind = ALT, TAB, cyclenext
 bind = ALT, TAB, bringactivetotop
 bind = $mod, TAB, workspace, previous
 
-# Hyprland can select its first unused workspace without an IPC helper.
+# Managing new workspaces
 bind = $mod, N, workspace, empty
 bind = $mod SHIFT, N, movetoworkspacesilent, empty
 bind = $mod SHIFT, M, movetoworkspace, empty
 
+# Clipboard
 bind = $mod SHIFT, P, exec, fleet-clipboard select
 bind = $mod CTRL, P, exec, fleet-clipboard clear
-bind = $mod CTRL, L, exec, $lock
 bind = , PRINT, exec, grimblast copy area
 
+# Selecting windows
 bind = $mod, LEFT, movefocus, l
 bind = $mod, DOWN, movefocus, d
 bind = $mod, UP, movefocus, u
@@ -97,6 +77,7 @@ bind = $mod, J, movefocus, d
 bind = $mod, K, movefocus, u
 bind = $mod, L, movefocus, r
 
+# Moving windows
 bind = $mod SHIFT, LEFT, movewindow, l
 bind = $mod SHIFT, DOWN, movewindow, d
 bind = $mod SHIFT, UP, movewindow, u
@@ -106,6 +87,7 @@ bind = $mod SHIFT, J, movewindow, d
 bind = $mod SHIFT, K, movewindow, u
 bind = $mod SHIFT, L, movewindow, r
 
+# Selecting workspaces
 bind = $mod, 1, workspace, 1
 bind = $mod, 2, workspace, 2
 bind = $mod, 3, workspace, 3
@@ -116,6 +98,8 @@ bind = $mod, 7, workspace, 7
 bind = $mod, 8, workspace, 8
 bind = $mod, 9, workspace, 9
 bind = $mod, 0, workspace, 10
+
+# Moving to workspaces
 bind = $mod SHIFT, 1, movetoworkspacesilent, 1
 bind = $mod SHIFT, 2, movetoworkspacesilent, 2
 bind = $mod SHIFT, 3, movetoworkspacesilent, 3
@@ -127,20 +111,18 @@ bind = $mod SHIFT, 8, movetoworkspacesilent, 8
 bind = $mod SHIFT, 9, movetoworkspacesilent, 9
 bind = $mod SHIFT, 0, movetoworkspacesilent, 10
 
-# Dwindle splitting and groups provide Hyprland-native layout controls.
-bind = $mod, B, layoutmsg, togglesplit
-bind = $mod, V, pseudo
-bind = $mod, S, togglegroup
-bind = $mod, W, changegroupactive, f
-bind = $mod, E, changegroupactive, b
 bind = $mod, F, fullscreen
+
+# Float and scratchpad
 bind = $mod SHIFT, SPACE, togglefloating
 bind = $mod SHIFT, MINUS, movetoworkspacesilent, special:scratchpad
 bind = $mod, MINUS, togglespecialworkspace, scratchpad
 
+# Moving and resizing with mouse
 bindm = $mod, mouse:272, movewindow
 bindm = $mod, mouse:273, resizewindow
 
+# Resizing mode
 bind = $mod, R, submap, resize
 submap = resize
 binde = , LEFT, resizeactive, -10 0
@@ -155,7 +137,7 @@ bind = , RETURN, submap, reset
 bind = , ESCAPE, submap, reset
 submap = reset
 
-# A separate submap keeps destructive session actions away from single keys.
+# Session mode
 bind = $mod SHIFT, E, submap, session
 submap = session
 bind = , L, exec, $lock
@@ -169,6 +151,7 @@ bind = , RETURN, submap, reset
 bind = , ESCAPE, submap, reset
 submap = reset
 
+# Media controls
 bindel = , XF86AudioRaiseVolume, exec, wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+
 bindel = , XF86AudioLowerVolume, exec, wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
 bindl = , XF86AudioMute, exec, wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
