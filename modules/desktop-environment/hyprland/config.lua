@@ -1,5 +1,5 @@
 local mod = "SUPER"
-local term = "uwsm app -- foot"
+local term = "uwsm app -- footclient"
 local menu = "uwsm app -- rofi -show drun"
 local lock = "hyprlock -c /etc/xdg/hypr/hyprlock.conf"
 

@@ -78,10 +78,20 @@ in
     XCURSOR_SIZE = "24";
   };
 
+  programs.foot = {
+    enable = true;
+    settings.main = {
+      font = "JetBrainsMono Nerd Font Mono:size=11";
+      dpi-aware = "no";
+    };
+
+    # Enable the server for executing footclient, which will boot faster.
+    xdg.serverAutostart = true;
+  };
+
   environment.systemPackages = with pkgs; [
     adwaita-icon-theme
     brightnessctl
-    foot
     grimblast
     lxqt.pcmanfm-qt
     playerctl
@@ -106,11 +116,6 @@ in
       [Settings]
       gtk-cursor-theme-name=Adwaita
       gtk-cursor-theme-size=24
-    '';
-    "xdg/foot/foot.ini".text = ''
-      [main]
-      font=JetBrainsMono Nerd Font Mono:size=11
-      dpi-aware=no
     '';
     "xdg/rofi/config.rasi".text = ''
       configuration {
