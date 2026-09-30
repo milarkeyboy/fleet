@@ -1,6 +1,6 @@
 ---
 name: python
-description: Implementing Python code.
+description: Implementing Python code. Load this if you are going to write Python code. Do not load this if you are merely reviewing Python code, or planning changes to Python code.
 ---
 
 # Python Development

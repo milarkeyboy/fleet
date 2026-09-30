@@ -61,6 +61,10 @@ For each test case, describe what it is the test is verifying in a
 comment/docstring/description (langauge dependent). Don't state what steps the
 test takes, but rather what behaviour is being verified.
 
+Test cases should have a single purpose. Don't add tests for new behaviour by
+piggy-backing a previously written test case if that new behaviour is not
+covered under the purpose of said test.
+
 Test fixtures or suites should also have comments and/or documentation that
 describe their scope e.g. what parts of the code are covered by the test cases
 in the fixture.

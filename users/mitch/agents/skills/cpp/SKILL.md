@@ -1,6 +1,6 @@
 ---
 name: cpp
-description: Implementing C++ code.
+description: Implementing C++ code. Load this if you are going to write C++ code. Do not load this if you are merely reviewing C++ code, or planning changes to C++ code.
 ---
 
 # C++ 

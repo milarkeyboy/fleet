@@ -7,6 +7,7 @@ sessions/
 # No need for logs
 pi-debug.log
 .DS_Store
+agent/crashes.json
 
 # Pi needs to stash its own binaries and installed packages sometimes.
 bin

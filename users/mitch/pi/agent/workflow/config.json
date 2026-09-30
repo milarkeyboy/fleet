@@ -1,10 +1,10 @@
 {
   "implementer": {
-    "model": "openai-codex/gpt-5.6-sol",
-    "thinkingLevel": "low"
+    "model": "openai-codex/gpt-6-luna",
+    "thinkingLevel": "high"
   },
   "reviewer": {
-    "model": "openai-codex/gpt-5.6-sol",
+    "model": "openai-codex/gpt-6-sol",
     "thinkingLevel": "medium"
   }
 }
