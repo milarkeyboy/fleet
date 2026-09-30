@@ -68,6 +68,15 @@ To switch to the configuration and make it the default boot entry:
 sudo nixos-rebuild switch --flake .#$HOST
 ```
 
+## Updating Specific Dependencies
+
+Flake inputs can be updated individual, without affecting other locked
+dependencies. To update the coding agent, for example:
+
+```bash
+nix flake update pi
+```
+
 <!-- TODO: Rewrite this, as it was AI generated. -->
 ## XLN Online Installer under Wine
 

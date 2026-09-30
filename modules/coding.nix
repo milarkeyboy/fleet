@@ -1,20 +1,16 @@
 { inputs, pkgs, ... }:
 
-let
-  unstablePkgs = inputs.nixpkgs-unstable.legacyPackages.${pkgs.stdenv.hostPlatform.system};
-in
 {
   environment.systemPackages = with pkgs; [
     # Agents
-    unstablePkgs.pi-coding-agent
+    inputs.pi.packages.${pkgs.stdenv.hostPlatform.system}.coding-agent
 
     # Toolchains
     # Note: tree-sitter needs a C compiler to exist.
     gcc
 
     # Node + npm
-    # Note: this is needed to use pi extensions (see
-    # users/mitch/pi/agent/settings.json)
+    # Node is used by pi extensions and JavaScript tooling.
     nodejs_latest
 
     # LSPs

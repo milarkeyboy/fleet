@@ -1,5 +1,6 @@
 # Block private API keys and session tokens
 auth.json
+agent/mcp-auth.json
 
 # Sessions are per-machine
 sessions/
