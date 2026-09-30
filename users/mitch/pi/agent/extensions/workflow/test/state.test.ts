@@ -1,9 +1,11 @@
+// Workflow state, checkpoints, and orchestration transitions.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { WorkflowSessionStore } from "../sessions.ts";
 import { shouldAutomaticallyRevise, WorkflowOrchestrator } from "../orchestrator.ts";
 import { completeTodosManuallyBefore, createWorkflowState, cumulativeRevision, currentTodo, humanCheckpointRevision, isWorkflowComplete, restoreState, type WorkflowTodo } from "../state.ts";
 
@@ -23,6 +25,27 @@ test("restores current native workflow state", () => {
 	const restored = restoreState(JSON.parse(JSON.stringify(state)));
 	assert.equal(restored?.goal, "Goal");
 	assert.deepEqual(restored?.todos[0].instructions, ["Keep every detail."]);
+});
+
+test("restored mutations leave the historical session entry unchanged", () => {
+	const saved = createWorkflowState();
+	saved.todos = [todo(1)];
+	const restored = restoreState(saved)!;
+	restored.todos[0].status = "approved";
+	assert.equal(saved.todos[0].status, "reviewing");
+});
+
+test("persists separate role sessions and an execution checkpoint", () => {
+	const state = createWorkflowState();
+	state.ownerSessionId = "parent-session";
+	const current = todo(1);
+	current.sessions = {
+		implementer: { id: "impl", file: "/sessions/impl.jsonl" },
+		reviewer: { id: "review", file: "/sessions/review.jsonl" },
+	};
+	current.checkpoint = { role: "reviewer", revisionIndex: 0 };
+	state.todos = [current];
+	assert.deepEqual(restoreState(JSON.parse(JSON.stringify(state))), state);
 });
 
 test("rejects title-only legacy workflow states that cannot recover instructions", () => {
@@ -92,7 +115,7 @@ test("initial human checkpoint results begin at the todo baseline", () => {
 
 test("cumulative todo results retain files changed across revisions", () => {
 	const restored = restoreState({
-		version: 5,
+		...createWorkflowState(),
 		todos: [{
 			step: 1,
 			title: "Task",
@@ -145,6 +168,7 @@ test("model preflight fails before workflow execution changes todo state", async
 		updateUi() {},
 		content() { contentLoaded = true; throw new Error("content should not load"); },
 		async models() { throw new Error("reviewer model is not authenticated"); },
+		sessions() { throw new Error("sessions should not load"); },
 	});
 
 	await assert.rejects(orchestrator.execute({ ui: { notify() {} } } as any), /not authenticated/);
@@ -162,6 +186,7 @@ test("orchestration caches net diffs between human checkpoints", async () => {
 		const state = createWorkflowState();
 		state.todos = [{ step: 1, title: "Task", instructions: ["Complete it."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] }];
 		let calls = 0;
+		const store = new WorkflowSessionStore(path.join(cwd, ".git", "workflow-sessions"), "parent", cwd);
 		const orchestrator = new WorkflowOrchestrator(state, {
 			persist() {},
 			updateUi() {},
@@ -179,6 +204,7 @@ test("orchestration caches net diffs between human checkpoints", async () => {
 			async models() {
 				return { implementer: { model: "test/implementer" }, reviewer: { model: "test/reviewer" } } as any;
 			},
+			sessions: () => store,
 			async runAgent(options) {
 				calls++;
 				if (options.roleName === "workflow-implementer") {
@@ -237,6 +263,7 @@ test("forcing a later todo cancels the active run without recording a failure", 
 			async models() {
 				return { implementer: { model: "test/implementer" }, reviewer: { model: "test/reviewer" } } as any;
 			},
+			sessions: () => new WorkflowSessionStore(path.join(cwd, ".git", "workflow-sessions"), "parent", cwd),
 			async runAgent(options) {
 				calls++;
 				if (calls === 1) {

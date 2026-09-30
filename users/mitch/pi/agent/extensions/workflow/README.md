@@ -10,7 +10,7 @@ subagent or planner role.
 ```text
 conversational planning
   → implementer (isolated context)
-  → reviewer (fresh, read-only context)
+  → reviewer (separate, read-only conversation)
   → one automatic revision when requested
   → human acceptance
      ↳ feedback → implementer → reviewer (repeat as needed)
@@ -57,7 +57,8 @@ Both subagent roles require explicit global model assignments before execution:
 Configuration is stored in pi's agent directory at `workflow/config.json`
 (normally `~/.pi/agent/workflow/config.json`). It is deliberately outside
 repositories and portable Markdown. Subagents never fall back to the top-level
-model or thinking level.
+model or thinking level. An omitted role thinking level selects `off`, including
+when reopening a conversation that previously used another level.
 
 Before changing todo state, the extension creates a subprocess-equivalent model
 registry and checks both model availability and authentication. Models
@@ -95,8 +96,8 @@ applies. Untagged todos execute normally. Skill values must use exact discovered
 names. An unknown explicit skill must be resolved interactively or with
 `/workflow skill N NAME|none` before execution.
 
-Workflow state created before the native todo format cannot recover discarded
-instructions and must be re planned.
+Workflow state uses version 6. Older workflows require a new plan; their state
+and subagent conversations are not migrated.
 
 ## Portable roles and Agent Skills
 
@@ -153,9 +154,12 @@ the current settings.
 
 ## Context isolation
 
-Every implementer and reviewer is a fresh pi JSON-mode subprocess launched with:
+Each todo owns two persisted Pi conversations: one implementer and one reviewer.
+Automatic revisions, human feedback and retries reopen the same role conversation.
+The next todo starts new conversations. Each invocation uses a short-lived Pi
+JSON-mode subprocess launched with:
 
-- `--no-session`
+- `--session <role-session-file>`
 - `--no-extensions`
 - `--no-skills`, followed by zero or more explicit `--skill` arguments
 - `--no-prompt-templates`
@@ -168,13 +172,19 @@ completed manually, current, upcoming, or aborted. The plan is a scope boundary:
 implementers must not absorb upcoming work, and reviewers must flag scope
 leakage without requesting work assigned to later todos.
 
-In addition, the implementer receives its role, selected primary skill, current
-todo, relevant paths, concise prerequisite handoffs, and revision feedback. The
-reviewer receives its role, the selected primary skill, the latest human
-feedback, the revision-specific diff, implementation summary, and validation
-results. Explicit human revision requirements can override the plan boundary and
-remain in both roles' context through automatic review retries. Reviewer tools
-exclude `edit`, `write`, and `bash`.
+Both roles receive an authoritative system-prompt snapshot containing the complete
+plan, current assignment and chronological human feedback for the current todo.
+Pi preserves that system snapshot through compaction while summarising older
+conversation messages. Earlier requirements remain in force unless later human
+feedback explicitly supersedes them. Explicit human revision requirements can
+override the plan boundary.
+
+Initial implementer messages include relevant paths and concise prerequisite
+handoffs. Follow-ups identify the current revision and supply the latest reviewer
+findings. Reviewer messages supply the current revision's diff, implementation
+summary and validation results. Both roles inspect current files rather than
+assuming earlier reads remain accurate. Reviewers reassess changes independently
+of their earlier verdicts. Reviewer tools exclude `edit`, `write`, and `bash`.
 
 ## Git, review, and persistence
 
@@ -199,7 +209,8 @@ todo: human feedback followed by the implementer and reviewer response for each
 revision, plus the files changed in each revision. This history is retained
 across session restarts, so later feedback rounds do not hide earlier summaries.
 
-Reviewer subagents receive only the current automatic revision's diff. At human
+Each reviewer invocation supplies the current automatic revision's diff; earlier
+diffs remain historical context in its conversation. At human
 acceptance, Inspect todo diff and `/workflow diff` show the net Git diff since
 the previous human checkpoint. The first checkpoint starts at the todo's initial
 baseline; human feedback starts a new checkpoint before the next implementer
@@ -209,8 +220,56 @@ persisted, and older sessions reconstruct them from their retained tree
 snapshots when possible.
 
 Versioned session entries persist todos, primary skills, chronological revision
-summaries, model records, review findings, pending human approval, and manual
-completion state.
+summaries, model records, review findings, pending human approval, manual
+completion state, role-session references and execution checkpoints.
+
+### Storage, interruption and cleanup
+
+Role transcripts are private files under
+`<agent-dir>/workflow/sessions/<workflow-id>/`, normally within `~/.pi/agent/`.
+The managed directory records its parent-session ownership. A workflow-wide lease
+prevents concurrent workers from writing the same conversations.
+
+Orderly quit or reload stops and awaits the active subprocess, preserving
+unfinished conversations. On restart, in-flight todos are marked `interrupted`;
+use `/workflow execute` or `/workflow resume` to continue explicitly. A completed
+implementation can proceed directly to review. An interrupted implementer
+reconciles existing edits, and its diff retains the original pre-invocation
+baseline. Files remain in the working tree; stopping a workflow does not undo
+changes.
+
+After an abrupt parent exit, a surviving worker blocks resumption and cleanup
+until it exits. Stale leases can be reclaimed once both recorded processes have
+exited. An interruption during lock acquisition or child launch requires manual
+inspection of the lock path reported in the error before removing that lock.
+
+Approval, manual completion and abort delete the finished todo's role transcripts.
+Clearing or replacing a plan deletes that workflow's transcripts after workers
+stop. Summaries, feedback and cached diffs remain in retained parent-session
+entries; small ownership metadata files remain in the managed directory.
+Missing or invalid established transcripts cause an error rather than silently
+starting an empty conversation. Clear the workflow and submit a new plan to
+recover.
+
+Resumption supports linear parent-session history. Navigating to a divergent
+history or forking the parent requires a new plan. The extension preserves the
+other history's transcripts and refuses to reuse or delete them from the new
+history.
+
+## Tests
+
+Run `npm test` in the extension directory. Tests use deterministic subprocess
+peers and temporary workspaces. When a Node-based Pi installation is available on
+`PATH`, session-format and compaction checks also run against its real SDK without
+calling a provider.
+
+Real-model isolation and conversational-continuity tests are opt-in:
+
+```sh
+PI_WORKFLOW_E2E=1 PI_WORKFLOW_E2E_MODEL=provider/model npm test
+```
+
+These tests use configured credentials and incur model usage.
 
 ## Security
 

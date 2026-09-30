@@ -14,6 +14,7 @@ const ICONS: Record<string, string> = {
 	approved: "✓",
 	"completed-manually": "✓*",
 	failed: "!",
+	interrupted: "Ⅱ",
 	aborted: "×",
 };
 

@@ -44,8 +44,14 @@ function workflowStatuses(state: WorkflowState, current: WorkflowTodo): string {
 	}).join("\n");
 }
 
-function latestHumanFeedback(todo: WorkflowTodo): string | undefined {
-	return [...todo.revisions].reverse().find((revision) => revision.humanFeedback)?.humanFeedback;
+const HUMAN_FEEDBACK_PROTOCOL = "Human feedback is listed in chronological order. Preserve all earlier human requirements unless later human feedback explicitly supersedes them.";
+
+function humanFeedbackHistory(todo: WorkflowTodo): string | undefined {
+	// The authoritative system snapshot preserves exact requirements across compaction.
+	const feedback = todo.revisions.flatMap((revision, index) =>
+		revision.humanFeedback ? [`Revision ${index + 1}:\n${revision.humanFeedback}`] : [],
+	);
+	return feedback.length ? feedback.join("\n\n") : undefined;
 }
 
 function latestReviewerFeedback(todo: WorkflowTodo): string | undefined {
@@ -53,20 +59,18 @@ function latestReviewerFeedback(todo: WorkflowTodo): string | undefined {
 	return review?.findings.join("\n- ");
 }
 
-export function implementerInvocation(state: WorkflowState, todo: WorkflowTodo, content: WorkflowContent) {
-	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
-	const role = content.roles.implementer;
-	const skills = selectedSkills(todo, content);
-	const relevant = extractRelevantFiles(todo);
-	const protocol = `Work only on the assigned todo. You may inspect additional files when necessary, but do not start another todo.
-The workflow plan is a scope boundary. Do not implement work assigned to upcoming todos. If the current todo cannot be completed without that work, return blocked instead of absorbing future scope. Explicit human revision requirements override this boundary.
-${skillProtocol(skills)}
-Validate your work with focused tests or checks. Do not claim a test passed unless you ran it.
-End with exactly one machine-readable block:
-<workflow-implementation>{"status":"completed|blocked","summary":"...","filesChanged":["..."],"tests":["command: result"],"notes":"optional"}</workflow-implementation>`;
-	const humanFeedback = latestHumanFeedback(todo);
-	const reviewerFeedback = latestReviewerFeedback(todo);
-	const task = `Goal: ${state.goal ?? "Complete the accepted workflow plan"}
+interface InvocationOptions {
+	continuing?: boolean;
+	interrupted?: boolean;
+}
+
+/** Pi checkpoints system prompts during compaction; historical exchanges can be summarised separately. */
+function authoritativePrompt(state: WorkflowState, todo: WorkflowTodo, role: WorkflowRoleContent, protocol: string): string {
+	return `${rolePrompt(role, protocol)}
+
+# Authoritative workflow assignment
+Use this current snapshot when older conversation messages describe different requirements.
+Goal: ${state.goal ?? "Complete the accepted workflow plan"}
 
 Canonical workflow plan (the exact plan presented for human review):
 ${formatWorkflowPlan(state.todos)}
@@ -77,17 +81,37 @@ ${workflowStatuses(state, todo)}
 Current assignment (rendered from the same todo data as the canonical plan):
 ${formatWorkflowTodo(todo)}
 
+Human revision requirements (take precedence if prior review findings conflict):
+${humanFeedbackHistory(todo) ?? "(none)"}`;
+}
+
+export function implementerInvocation(state: WorkflowState, todo: WorkflowTodo, content: WorkflowContent, options: InvocationOptions = {}) {
+	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
+	const role = content.roles.implementer;
+	const skills = selectedSkills(todo, content);
+	const relevant = extractRelevantFiles(todo);
+	const protocol = `Work only on the assigned todo. You may inspect additional files when necessary, but do not start another todo.
+The workflow plan is a scope boundary. Do not implement work assigned to upcoming todos. If the current todo cannot be completed without that work, return blocked instead of absorbing future scope. Explicit human revision requirements override this boundary.
+${HUMAN_FEEDBACK_PROTOCOL}
+${skillProtocol(skills)}
+Validate your work with focused tests or checks. Do not claim a test passed unless you ran it.
+End with exactly one machine-readable block:
+<workflow-implementation>{"status":"completed|blocked","summary":"...","filesChanged":["..."],"tests":["command: result"],"notes":"optional"}</workflow-implementation>`;
+	const reviewerFeedback = latestReviewerFeedback(todo);
+	const task = `${options.continuing ? "Continue" : "Implement"} todo ${todo.step}, revision ${todo.revisions.length}, using the authoritative workflow assignment and human requirements in the system prompt.
+Inspect the current worktree before editing; earlier file reads may be stale.
+${options.interrupted ? "The previous invocation was interrupted. Reconcile the existing edits before continuing; do not blindly repeat earlier tool calls. Return a complete implementation result for this revision." : ""}
+${!options.continuing ? `
 Relevant files named by the plan:
 ${relevant.length ? relevant.map((file) => `- ${file}`).join("\n") : "- Discover the minimum relevant files."}
 
 Completed prerequisite handoffs:
-${dependencyHandoffs(state, todo)}
-${humanFeedback ? `\nHuman revision requirements (take precedence if prior review findings conflict):\n${humanFeedback}` : ""}
+${dependencyHandoffs(state, todo)}` : ""}
 ${reviewerFeedback ? `\nLatest reviewer findings:\n- ${reviewerFeedback}` : ""}`;
-	return { systemPrompt: rolePrompt(role, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
+	return { systemPrompt: authoritativePrompt(state, todo, role, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
 }
 
-export function reviewerInvocation(state: WorkflowState, todo: WorkflowTodo, content: WorkflowContent) {
+export function reviewerInvocation(state: WorkflowState, todo: WorkflowTodo, content: WorkflowContent, options: InvocationOptions = {}) {
 	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
 	const role = content.roles.reviewer;
 	const skills = selectedSkills(todo, content);
@@ -99,20 +123,13 @@ The workflow plan is a scope boundary. Flag implementation of upcoming todos as 
 ${skillProtocol(skills)}
 Apply the selected skills' review guidance where relevant.
 Treat supplied human feedback as revision requirements that override the plan boundary when explicit. Escalate if it conflicts with the original todo or cannot be satisfied safely.
+${HUMAN_FEEDBACK_PROTOCOL}
 A request_changes verdict must contain concrete, actionable findings. Use escalate for ambiguity requiring a human decision.
 End with exactly one machine-readable block:
 <workflow-review>{"verdict":"approve|request_changes|escalate","summary":"...","findings":["..."]}</workflow-review>`;
-	const task = `Canonical workflow plan (the exact plan presented for human review):
-${formatWorkflowPlan(state.todos)}
-
-Workflow orchestration status (not part of the canonical plan):
-${workflowStatuses(state, todo)}
-
-Current assignment (rendered from the same todo data as the canonical plan):
-${formatWorkflowTodo(todo)}
-
-Human feedback governing this revision:
-${latestHumanFeedback(todo) ?? "(none)"}
+	const task = `${options.continuing ? "Review again" : "Review"} todo ${todo.step}, revision ${todo.revisions.length}, against the authoritative workflow assignment and all human requirements in the system prompt.
+Reassess the current changes independently of your earlier verdicts. Use the newest supplied diff and inspect current files; earlier diffs and file reads are historical context.
+${options.interrupted ? "The previous invocation was interrupted. Recheck the current worktree and produce a new complete review result." : ""}
 
 Implementer summary:
 ${implementation.summary}
@@ -128,7 +145,7 @@ ${implementation.tests.join("\n") || "(none reported)"}
 
 Todo-specific diff:
 ${result.diffPreview ?? "(unavailable)"}`;
-	return { systemPrompt: rolePrompt(role, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
+	return { systemPrompt: authoritativePrompt(state, todo, role, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
 }
 
 export function validateImplementation(value: ImplementationResult): ImplementationResult {

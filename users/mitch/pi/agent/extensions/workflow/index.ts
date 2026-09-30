@@ -8,11 +8,10 @@ import { diffForHumanCheckpoint } from "./git.ts";
 import { WorkflowOrchestrator } from "./orchestrator.ts";
 import { appendPlanningInstructions, formatWorkflowPlan, resolveSkillTag, submitWorkflowPlan } from "./planner.ts";
 import { isReadOnlyPlanningCommand } from "./safety.ts";
-import { cloneState, createWorkflowState, currentTodo, isWorkflowComplete, restoreState, type WorkflowState, type WorkflowTodo } from "./state.ts";
+import { WorkflowSessionStore } from "./sessions.ts";
+import { cloneState, createWorkflowState, currentTodo, isWorkflowComplete, restoreWorkflowBranch, markWorkflowInterrupted, WORKFLOW_ENTRY_TYPE as ENTRY_TYPE, type WorkflowState, type WorkflowTodo } from "./state.ts";
 import { clearWorkflowUi, formatWorkflowDiff, todoSummary, updateWorkflowUi, workflowStatusSummary } from "./ui.ts";
 
-const ENTRY_TYPE = "workflow-state-v5";
-const LEGACY_ENTRY_TYPES = new Set(["workflow-state-v1", "workflow-state-v2", "workflow-state-v3", "workflow-state-v4"]);
 const QUESTIONNAIRE_TOOL = "questionnaire";
 const SUBMIT_PLAN_TOOL = "workflow_submit_plan";
 const DIFF_MESSAGE_TYPE = "workflow-diff";
@@ -48,6 +47,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 	let state = createWorkflowState();
 	let content: WorkflowContent | undefined;
 	let orchestrator: WorkflowOrchestrator;
+	let transitioning = false;
 
 	pi.registerFlag("workflow", { description: "Start in conversational workflow planning mode", type: "boolean", default: false });
 
@@ -77,9 +77,10 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				if (!content) throw new Error("Workflow Markdown content has not been loaded.");
 				return content;
 			},
-			models: async (ctx) => requireExecutableWorkflowModels(
+			sessions: (ctx) => new WorkflowSessionStore(path.join(getAgentDir(), "workflow", "sessions"), ctx.sessionManager.getSessionId(), ctx.cwd),
+			models: async (ctx, signal) => requireExecutableWorkflowModels(
 				await loadWorkflowModelConfig(getAgentDir()),
-				await createWorkflowSubprocessModelRegistry(ctx.signal),
+				await createWorkflowSubprocessModelRegistry(signal ?? ctx.signal),
 			),
 		});
 	}
@@ -135,12 +136,47 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		ctx.ui.notify(`Workflow role placeholders initialized under ${agents}. Existing files were preserved.`, "info");
 	}
 
+	async function abortCurrent(ctx: ExtensionContext): Promise<void> {
+		if (transitioning) throw new Error("A workflow transition is already in progress.");
+		transitioning = true;
+		const original = state;
+		const todo = currentTodo(state);
+		try {
+			await orchestrator.stop();
+			if (state !== original) throw new Error("Workflow changed while stopping. Retry the command.");
+			if (todo) { todo.status = "aborted"; todo.checkpoint = undefined; }
+			state.executing = false;
+			state.paused = false;
+			persist();
+			if (todo) orchestrator.cleanupTodos(ctx, [todo]);
+			persist(); update(ctx);
+		} finally { rebuildOrchestrator(); transitioning = false; }
+	}
+
+	async function replaceWorkflow(ctx: ExtensionContext, replacement: WorkflowState): Promise<void> {
+		if (transitioning) throw new Error("A workflow transition is already in progress.");
+		transitioning = true;
+		const original = state;
+		try {
+			await orchestrator.stop();
+			if (state !== original) throw new Error("Workflow changed while stopping. Retry the command.");
+			state.discarding = true;
+			persist();
+			orchestrator.cleanupWorkflow(ctx);
+			state = replacement;
+			persist(); update(ctx);
+		} finally { rebuildOrchestrator(); transitioning = false; }
+	}
+
 	async function approveCurrent(ctx: ExtensionContext): Promise<void> {
 		const todo = currentTodo(state);
 		if (!todo || todo.status !== "awaiting-user") throw new Error("No todo is awaiting human approval.");
+		if (orchestrator.isRunning()) throw new Error("Wait for the workflow worker to finish before approving.");
 		todo.status = "approved";
 		state.currentStep = state.todos.find((item) => item.status === "pending")?.step;
-		state.executing = !isWorkflowComplete(state);
+		state.executing = false;
+		persist();
+		orchestrator.cleanupTodos(ctx, [todo]);
 		persist();
 		update(ctx);
 		if (isWorkflowComplete(state)) {
@@ -153,10 +189,11 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 
 	async function requestFeedback(args: string, ctx: ExtensionContext): Promise<void> {
 		const todo = currentTodo(state);
-		if (!todo || !["awaiting-user", "failed"].includes(todo.status)) throw new Error("No todo is available for human feedback.");
+		if (!todo || !["awaiting-user", "failed", "interrupted"].includes(todo.status)) throw new Error("No todo is available for human feedback.");
 		let feedback = args.trim();
 		if (!feedback && ctx.hasUI) feedback = (await ctx.ui.editor(`Changes requested for todo ${todo.step}`, ""))?.trim() ?? "";
 		if (!feedback) return;
+		if (currentTodo(state) !== todo) throw new Error("Workflow changed while awaiting feedback. Review the current todo first.");
 		await orchestrator.reviseFromHuman(ctx, todo, feedback);
 	}
 
@@ -177,12 +214,13 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		ctx.ui.notify(todoSummary(todo), "info");
 		if (!ctx.hasUI || todo.status !== "awaiting-user") return;
 		const action = await ctx.ui.select("Human acceptance", ["Approve and continue", "Inspect todo diff", "Request changes", "Ask reviewer to reconsider", "Pause workflow", "Abort workflow"]);
+		if (currentTodo(state) !== todo) throw new Error("Workflow changed while awaiting review. Review the current todo first.");
 		if (action === "Approve and continue") await approveCurrent(ctx);
 		else if (action === "Inspect todo diff") await showTodoDiff(todo, ctx);
 		else if (action === "Request changes") await requestFeedback("", ctx);
 		else if (action === "Ask reviewer to reconsider") await requestFeedback("Reconsider the implementation in light of the prior review and perform another independent review. Do not change code unless needed to address a concrete issue.", ctx);
 		else if (action === "Pause workflow") { state.paused = true; persist(); update(ctx); }
-		else if (action === "Abort workflow") { todo.status = "aborted"; state.executing = false; state.paused = false; persist(); update(ctx); }
+		else if (action === "Abort workflow") await abortCurrent(ctx);
 	}
 
 	pi.registerTool({
@@ -199,10 +237,13 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			if (!state.planning) throw new Error("Workflow plans can only be submitted while workflow planning is active.");
-			submitWorkflowPlan(state, params.todos, getContent(ctx).skills);
-			await resolveUnknownSkillRequests(ctx);
-			persist();
-			update(ctx);
+			const original = state;
+			const replacement = { ...createWorkflowState(), planning: true, ownerSessionId: ctx.sessionManager.getSessionId(), goal: state.goal, toolsBeforePlanning: state.toolsBeforePlanning };
+			submitWorkflowPlan(replacement, params.todos, getContent(ctx).skills);
+			await resolveUnknownSkillRequests(ctx, replacement.todos);
+			_signal?.throwIfAborted();
+			if (state !== original) throw new Error("Workflow changed while awaiting plan input. Submit the plan again.");
+			await replaceWorkflow(ctx, replacement);
 			const plan = formatWorkflowPlan(state.todos);
 			return {
 				content: [{ type: "text", text: plan }],
@@ -226,6 +267,8 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				const args = rawArgs.trim();
 				const [command = "", ...rest] = args.split(/\s+/);
 				const tail = rest.join(" ");
+				if (transitioning) throw new Error("A workflow transition is already in progress.");
+				if (state.discarding && !["clear", "status", "todos", "on", "off"].includes(command)) throw new Error("Workflow cleanup is unfinished. Run /workflow clear before continuing.");
 				if (!command) return state.planning ? disablePlanning(ctx) : enablePlanning(ctx);
 				if (command === "on") return enablePlanning(ctx);
 				if (command === "off") return disablePlanning(ctx);
@@ -286,7 +329,9 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 					if (rest.length > 1 || (rest[0] !== undefined && !/^\d+$/.test(rest[0]))) throw new Error("Usage: /workflow execute [step]");
 					const targetStep = rest[0] === undefined ? undefined : Number(rest[0]);
 					const target = targetStep === undefined ? undefined : state.todos.find((todo) => todo.step === targetStep);
+					const original = state;
 					await resolveUnknownSkillRequests(ctx, targetStep === undefined ? state.todos : target ? [target] : []);
+					if (state !== original) throw new Error("Workflow changed while awaiting skill input. Retry the command.");
 					const unresolvedTodo = targetStep === undefined
 						? state.todos.find((todo) => todo.skillRequest)
 						: target?.skillRequest ? target : undefined;
@@ -304,8 +349,15 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				}
 				if (command === "pause") { state.paused = true; persist(); update(ctx); return; }
 				if (command === "resume") { state.paused = false; persist(); update(ctx); return await orchestrator.execute(ctx); }
-				if (command === "abort") { const todo = currentTodo(state); if (todo) todo.status = "aborted"; state.executing = false; state.paused = false; persist(); update(ctx); return; }
-				if (command === "clear") { if (state.planning) disablePlanning(ctx, false); state = createWorkflowState(); content = undefined; rebuildOrchestrator(); persist(); clearWorkflowUi(ctx); return ctx.ui.notify("Workflow state cleared.", "info"); }
+				if (command === "abort") return await abortCurrent(ctx);
+				if (command === "clear") {
+					const tools = state.toolsBeforePlanning;
+					await replaceWorkflow(ctx, createWorkflowState());
+					if (tools) pi.setActiveTools(tools);
+					content = undefined;
+					clearWorkflowUi(ctx);
+					return ctx.ui.notify("Workflow state cleared.", "info");
+				}
 				ctx.ui.notify(helpText(), "info");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
@@ -328,22 +380,52 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		return { systemPrompt: appendPlanningInstructions(event.systemPrompt, found.planner, found.skills) };
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
-		const entries = ctx.sessionManager.getEntries().filter((entry: any) => entry.type === "custom");
-		const saved = entries.filter((entry: any) => entry.customType === ENTRY_TYPE).pop() as { data?: unknown } | undefined;
-		const requiresReplan = !saved && entries.some((entry: any) => LEGACY_ENTRY_TYPES.has(entry.customType));
-		state = restoreState(saved?.data) ?? createWorkflowState();
-		if (pi.getFlag("workflow") === true || requiresReplan) state.planning = true;
+	async function restoreSession(ctx: ExtensionContext): Promise<void> {
+		if (state.toolsBeforePlanning) pi.setActiveTools(state.toolsBeforePlanning);
+		const restored = restoreWorkflowBranch(ctx.sessionManager.getEntries(), ctx.sessionManager.getBranch(), ctx.sessionManager.getSessionId());
+		state = restored.state;
+		markWorkflowInterrupted(state);
 		reloadContent(ctx);
 		rebuildOrchestrator();
+		// Finish a persisted terminal transition before allowing new work after a restart.
+		try {
+			if (state.discarding) {
+				orchestrator.cleanupWorkflow(ctx);
+				state = { ...createWorkflowState(), ownerSessionId: ctx.sessionManager.getSessionId() };
+				rebuildOrchestrator();
+				persist();
+			} else {
+				const finished = state.todos.filter((todo) => ["approved", "completed-manually", "aborted"].includes(todo.status) && todo.sessions);
+				if (finished.length) { orchestrator.cleanupTodos(ctx, finished); persist(); }
+			}
+		} catch (error) {
+			ctx.ui.notify(`Workflow cleanup needs attention: ${String(error)}`, "error");
+		}
+		if (pi.getFlag("workflow") === true || restored.replanReason) state.planning = true;
 		if (state.planning) enablePlanning(ctx, false);
 		else update(ctx);
-		if (requiresReplan) ctx.ui.notify("This session contains a title-only workflow from an older format. Replanning is required because its detailed instructions cannot be recovered.", "warning");
+		if (restored.replanReason) ctx.ui.notify(restored.replanReason, "warning");
 		const todo = currentTodo(state);
 		if (todo?.status === "awaiting-user") ctx.ui.notify(`Workflow resumed at todo ${todo.step}, awaiting your approval. Use /workflow review.`, "info");
-	});
+		if (todo?.status === "interrupted") { persist(); ctx.ui.notify(todo.error!, "warning"); }
+	}
 
-	pi.on("session_shutdown", async (_event, ctx) => clearWorkflowUi(ctx));
+	pi.on("session_start", async (_event, ctx) => restoreSession(ctx));
+	pi.on("session_before_tree", async () => {
+		await orchestrator.stop();
+		rebuildOrchestrator();
+	});
+	pi.on("session_before_fork", async () => {
+		await orchestrator.stop();
+		rebuildOrchestrator();
+	});
+	pi.on("session_tree", async (_event, ctx) => restoreSession(ctx));
+
+	pi.on("session_shutdown", async (_event, ctx) => {
+		transitioning = true;
+		try { await orchestrator.stop(); }
+		finally { clearWorkflowUi(ctx); }
+	});
 
 	rebuildOrchestrator();
 }

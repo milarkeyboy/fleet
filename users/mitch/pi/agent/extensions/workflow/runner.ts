@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 export interface AgentRunOptions {
 	cwd: string;
 	roleName: string;
+	sessionFile: string;
 	systemPrompt: string;
 	task: string;
 	skillPaths: string[];
@@ -16,6 +17,8 @@ export interface AgentRunOptions {
 	thinkingLevel?: string;
 	signal?: AbortSignal;
 	onUpdate?: (text: string) => void;
+	/** Track child ownership: 0 fences the spawn window; undefined records completed cleanup. */
+	onProcess?: (pid: number | undefined) => void;
 }
 
 export interface AgentRunResult {
@@ -50,7 +53,7 @@ export function buildAgentArgs(options: AgentRunOptions, promptPath: string): st
 	const args = [
 		"--mode", "json",
 		"-p",
-		"--no-session",
+		"--session", options.sessionFile,
 		"--no-extensions",
 		"-e", BASH_POLICY_EXTENSION_PATH,
 		"--no-skills",
@@ -60,26 +63,51 @@ export function buildAgentArgs(options: AgentRunOptions, promptPath: string): st
 		"--append-system-prompt", promptPath,
 	];
 	args.push("--model", options.model);
-	if (options.thinkingLevel) args.push("--thinking", options.thinkingLevel);
+	args.push("--thinking", options.thinkingLevel ?? "off");
 	args.push(`Task: ${options.task}`);
 	return args;
 }
 
 export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
+	options.signal?.throwIfAborted();
 	const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-workflow-"));
 	const promptPath = path.join(tempDir, `${options.roleName.replace(/[^\w.-]/g, "_")}.md`);
-	await writeFile(promptPath, options.systemPrompt, { encoding: "utf8", mode: 0o600 });
-	const args = buildAgentArgs(options, promptPath);
-
 	const result: AgentRunResult = { exitCode: 1, output: "", stderr: "", messages: [] };
 	try {
-		const launch = invocation(args);
-		result.exitCode = await new Promise<number>((resolve) => {
+		await writeFile(promptPath, options.systemPrompt, { encoding: "utf8", mode: 0o600 });
+		const launch = invocation(buildAgentArgs(options, promptPath));
+		options.signal?.throwIfAborted();
+		result.exitCode = await new Promise<number>((resolve, reject) => {
+			options.onProcess?.(0);
 			const child = spawn(launch.command, launch.args, {
 				cwd: options.cwd,
 				shell: false,
+				detached: process.platform !== "win32",
 				stdio: ["ignore", "pipe", "pipe"],
 			});
+			// An implementer's shell descendants must stop before snapshots or deletion.
+			const kill = (signal: NodeJS.Signals) => {
+				try {
+					if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal);
+					else child.kill(signal);
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "ESRCH") result.stderr += String(error);
+				}
+			};
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			let aborted = false;
+			const abort = () => {
+				if (aborted) return;
+				aborted = true;
+				kill("SIGTERM");
+				timer = setTimeout(() => kill("SIGKILL"), 5_000);
+				timer.unref?.();
+			};
+			let trackingError: unknown;
+			try { options.onProcess?.(child.pid); }
+			catch (error) { trackingError = error; abort(); }
+			child.stdout.setEncoding("utf8");
+			child.stderr.setEncoding("utf8");
 			let buffer = "";
 			const processLine = (line: string) => {
 				if (!line.trim()) return;
@@ -88,11 +116,9 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
 					if (event.type === "message_end" && event.message) {
 						result.messages.push(event.message);
 						const text = textFromMessage(event.message);
-						if (text) {
-							result.output = text;
-							options.onUpdate?.(text);
-						}
+						if (text) options.onUpdate?.(text);
 						if (event.message.role === "assistant") {
+							result.output = text;
 							result.stopReason = event.message.stopReason;
 							result.errorMessage = event.message.errorMessage;
 						}
@@ -108,18 +134,23 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
 				for (const line of lines) processLine(line);
 			});
 			child.stderr.on("data", (data) => { result.stderr += data.toString(); });
-			child.on("error", (error) => { result.stderr += error.message; resolve(1); });
-			child.on("close", (code) => { if (buffer.trim()) processLine(buffer); resolve(code ?? 1); });
-
-			const abort = () => {
-				child.kill("SIGTERM");
-				setTimeout(() => child.kill("SIGKILL"), 5_000).unref?.();
-			};
+			child.on("error", (error) => { result.stderr += error.message; });
+			child.on("close", (code) => {
+				if (timer) clearTimeout(timer);
+				options.signal?.removeEventListener("abort", abort);
+				if (aborted) kill("SIGKILL");
+				if (buffer.trim()) processLine(buffer);
+				try { options.onProcess?.(undefined); }
+				catch (error) { trackingError ??= error; }
+				if (trackingError) reject(trackingError);
+				else resolve(code ?? 1);
+			});
 			if (options.signal?.aborted) abort();
 			else options.signal?.addEventListener("abort", abort, { once: true });
 		});
-		if (result.exitCode !== 0 || result.stopReason === "error") {
-			throw new Error(result.errorMessage || result.stderr || `${options.roleName} exited with ${result.exitCode}`);
+		options.signal?.throwIfAborted();
+		if (result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted" || result.stopReason === "length") {
+			throw new Error(result.errorMessage || result.stderr || `${options.roleName} ended with ${result.stopReason ?? `exit code ${result.exitCode}`}`);
 		}
 		return result;
 	} finally {

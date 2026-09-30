@@ -4,6 +4,7 @@ import type { WorkflowContent } from "./content.ts";
 import { implementerInvocation, reviewerInvocation, validateImplementation, validateReview } from "./context.ts";
 import { diffForHumanCheckpoint, diffTrees, snapshotWorktree } from "./git.ts";
 import { extractProtocolJson, runAgent } from "./runner.ts";
+import { WorkflowSessionStore, type WorkflowLease } from "./sessions.ts";
 import { completeTodosManuallyBefore, currentTodo, isWorkflowComplete, latestRevision, nextPendingTodo, type ImplementationResult, type ReviewResult, type WorkflowRevision, type WorkflowState, type WorkflowTodo } from "./state.ts";
 import { todoSummary } from "./ui.ts";
 
@@ -11,7 +12,8 @@ export interface OrchestratorHooks {
 	persist: () => void;
 	updateUi: (ctx: ExtensionContext) => void;
 	content: () => WorkflowContent;
-	models: (ctx: ExtensionContext) => Promise<CompleteWorkflowModelConfig>;
+	models: (ctx: ExtensionContext, signal?: AbortSignal) => Promise<CompleteWorkflowModelConfig>;
+	sessions: (ctx: ExtensionContext) => WorkflowSessionStore;
 	runAgent?: typeof runAgent;
 }
 
@@ -21,6 +23,7 @@ export function shouldAutomaticallyRevise(todo: WorkflowTodo): boolean {
 
 export class WorkflowOrchestrator {
 	private running = false;
+	private stopping = false;
 	private activeRun?: { controller: AbortController; promise: Promise<void> };
 	private readonly state: WorkflowState;
 	private readonly hooks: OrchestratorHooks;
@@ -30,9 +33,7 @@ export class WorkflowOrchestrator {
 		this.hooks = hooks;
 	}
 
-	isRunning(): boolean {
-		return this.running;
-	}
+	isRunning(): boolean { return this.running; }
 
 	private changed(ctx: ExtensionContext): void {
 		this.state.updatedAt = Date.now();
@@ -40,41 +41,78 @@ export class WorkflowOrchestrator {
 		this.hooks.updateUi(ctx);
 	}
 
+	private store(ctx: ExtensionContext): WorkflowSessionStore {
+		const store = this.hooks.sessions(ctx);
+		this.state.ownerSessionId ??= store.ownerSessionId;
+		return store;
+	}
+
 	private async runExclusive(
 		ctx: ExtensionContext,
-		run: (signal: AbortSignal, cancellation: AbortSignal) => Promise<void>,
+		run: (signal: AbortSignal, models: CompleteWorkflowModelConfig, store: WorkflowSessionStore, lease: WorkflowLease) => Promise<void>,
 	): Promise<void> {
-		if (this.running) throw new Error("A workflow subagent is already running.");
+		if (this.running || this.stopping) throw new Error("A workflow subagent is already running or stopping.");
 		this.running = true;
 		const controller = new AbortController();
 		const signal = ctx.signal ? AbortSignal.any([ctx.signal, controller.signal]) : controller.signal;
-		let promise: Promise<void>;
-		promise = run(signal, controller.signal).finally(() => {
+		const promise = (async () => {
+			const models = await this.hooks.models(ctx, signal);
+			signal.throwIfAborted();
+			const store = this.store(ctx);
+			const lease = store.acquire(this.state);
+			try { await run(signal, models, store, lease); }
+			finally { lease.release(); }
+		})();
+		this.activeRun = { controller, promise };
+		try { await promise; }
+		finally {
 			if (this.activeRun?.promise === promise) this.activeRun = undefined;
 			this.running = false;
-		});
-		this.activeRun = { controller, promise };
-		await promise;
-	}
-
-	private async cancelActiveRun(): Promise<void> {
-		const active = this.activeRun;
-		if (!active) return;
-		active.controller.abort();
-		try {
-			await active.promise;
-		} catch (error) {
-			if (!active.controller.signal.aborted) throw error;
 		}
 	}
 
+	/** Keep the instance fenced until the caller has completed its state transition. */
+	async stop(): Promise<void> {
+		this.stopping = true;
+		const active = this.activeRun;
+		if (!active) return;
+		active.controller.abort();
+		try { await active.promise; }
+		catch (error) { if (!active.controller.signal.aborted) throw error; }
+	}
+
+	/** Terminal transitions keep summary artefacts but release the role conversations. */
+	cleanupTodos(ctx: ExtensionContext, todos: WorkflowTodo[]): void {
+		if (this.running) throw new Error("Stop the workflow before deleting its sessions.");
+		if (!todos.some((todo) => Object.keys(todo.sessions ?? {}).length)) {
+			for (const todo of todos) todo.checkpoint = undefined;
+			return;
+		}
+		const store = this.store(ctx);
+		const lease = store.acquire(this.state, true);
+		try { for (const todo of todos) store.deleteTodo(this.state, todo); }
+		finally { lease.release(); }
+	}
+
+	cleanupWorkflow(ctx: ExtensionContext): void {
+		if (this.running) throw new Error("Stop the workflow before deleting its sessions.");
+		if (!this.state.ownerSessionId) return;
+		const store = this.store(ctx);
+		if (!store.hasDirectory(this.state)) {
+			for (const todo of this.state.todos) { todo.sessions = undefined; todo.checkpoint = undefined; }
+			return;
+		}
+		const lease = store.acquire(this.state, true);
+		try { store.deleteWorkflow(this.state); }
+		finally { lease.release(); }
+	}
+
 	async execute(ctx: ExtensionContext): Promise<void> {
-		if (this.running) throw new Error("A workflow subagent is already running.");
+		if (this.running || this.stopping) throw new Error("A workflow subagent is already running or stopping.");
 		if (this.state.paused) throw new Error("Workflow is paused. Run /workflow resume first.");
 		const todo = currentTodo(this.state) ?? nextPendingTodo(this.state);
 		if (!todo) {
-			if (isWorkflowComplete(this.state)) ctx.ui.notify("Workflow is complete.", "info");
-			else ctx.ui.notify("There are no workflow todos to execute.", "warning");
+			ctx.ui.notify(isWorkflowComplete(this.state) ? "Workflow is complete." : "There are no workflow todos to execute.", "info");
 			return;
 		}
 		if (todo.status === "awaiting-user") {
@@ -82,12 +120,10 @@ export class WorkflowOrchestrator {
 			return;
 		}
 		if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}". Use /workflow skill ${todo.step} <name|none>.`);
-		await this.runExclusive(ctx, async (signal, cancellation) => {
-			const models = await this.hooks.models(ctx);
-			if (cancellation.aborted) return;
+		await this.runExclusive(ctx, async (signal, models, store, lease) => {
 			this.state.executing = true;
 			this.state.currentStep = todo.step;
-			await this.runTodo(ctx, todo, false, models, undefined, signal, cancellation);
+			await this.runTodo(ctx, todo, models, store, lease, signal);
 		});
 	}
 
@@ -98,24 +134,26 @@ export class WorkflowOrchestrator {
 		if (!target) throw new Error(`Todo ${targetStep} does not exist.`);
 		if (target.step <= selected.step) throw new Error(`Todo ${targetStep} is not later than the current todo ${selected.step}.`);
 		if (target.status !== "pending") throw new Error(`Todo ${targetStep} is ${target.status}, not pending.`);
-		if (target.skillRequest) throw new Error(`Todo ${target.step} requests unknown Agent Skill "${target.skillRequest}". Use /workflow skill ${target.step} <name|none>.`);
-
-		await this.cancelActiveRun();
-		if (target.status !== "pending") throw new Error(`Todo ${targetStep} is no longer pending.`);
-		const completed = completeTodosManuallyBefore(this.state, targetStep);
-		this.state.currentStep = targetStep;
-		this.state.executing = false;
-		this.state.paused = false;
-		this.changed(ctx);
-		ctx.ui.notify(`Marked todo${completed.length === 1 ? "" : "s"} ${completed.map((todo) => todo.step).join(", ")} completed manually. Starting todo ${targetStep}.`, "info");
+		if (target.skillRequest) throw new Error(`Todo ${target.step} requests unknown Agent Skill "${target.skillRequest}".`);
+		await this.stop();
+		try {
+			const earlier = this.state.todos.filter((todo) => todo.step < targetStep);
+			const completed = completeTodosManuallyBefore(this.state, targetStep);
+			this.changed(ctx);
+			this.cleanupTodos(ctx, earlier);
+			this.state.currentStep = targetStep;
+			this.state.executing = false;
+			this.state.paused = false;
+			this.changed(ctx);
+			ctx.ui.notify(`Marked todo${completed.length === 1 ? "" : "s"} ${completed.map((todo) => todo.step).join(", ")} completed manually. Starting todo ${targetStep}.`, "info");
+		} finally { this.stopping = false; }
 		await this.execute(ctx);
 	}
 
 	async reviseFromHuman(ctx: ExtensionContext, todo: WorkflowTodo, feedback: string): Promise<void> {
-		await this.runExclusive(ctx, async (signal, cancellation) => {
-			const models = await this.hooks.models(ctx);
-			if (cancellation.aborted) return;
+		await this.runExclusive(ctx, async (signal, models, store, lease) => {
 			todo.revisions.push({ humanFeedback: feedback, changedFiles: [] });
+			todo.checkpoint = undefined;
 			todo.automaticReviewCycles = 0;
 			todo.status = "revising";
 			todo.error = undefined;
@@ -123,136 +161,115 @@ export class WorkflowOrchestrator {
 			this.state.executing = true;
 			this.state.currentStep = todo.step;
 			this.changed(ctx);
-			await this.runTodo(ctx, todo, true, models, latestRevision(todo), signal, cancellation);
+			await this.runTodo(ctx, todo, models, store, lease, signal);
 		});
 	}
 
-	private async runTodo(
-		ctx: ExtensionContext,
-		todo: WorkflowTodo,
-		revision: boolean,
-		models: CompleteWorkflowModelConfig,
-		revisionRecord: WorkflowRevision | undefined,
-		signal: AbortSignal,
-		cancellation: AbortSignal,
-	): Promise<void> {
+	private async captureDiffs(ctx: ExtensionContext, todo: WorkflowTodo, record: WorkflowRevision, reconcileReview = false): Promise<void> {
+		const resultTree = await snapshotWorktree(ctx.cwd);
+		if (reconcileReview && (!record.resultTree || record.resultTree !== resultTree)) record.review = undefined;
+		record.resultTree = resultTree;
+		const diff = await diffTrees(ctx.cwd, record.baselineTree, record.resultTree);
+		record.changedFiles = diff.changedFiles.length ? diff.changedFiles : record.implementation?.filesChanged ?? [];
+		record.diffPreview = diff.preview;
+		// A resumed stage can update the same revision, so invalidate its cached checkpoint diff.
+		record.humanCheckpointChangedFiles = undefined;
+		record.humanCheckpointDiffPreview = undefined;
+		const human = await diffForHumanCheckpoint(ctx.cwd, todo);
+		record.humanCheckpointChangedFiles = human.changedFiles;
+		record.humanCheckpointDiffPreview = human.preview;
+		const firstBaseline = todo.revisions.find((revision) => revision.baselineTree)?.baselineTree;
+		if (firstBaseline && record.resultTree) {
+			const cumulative = await diffTrees(ctx.cwd, firstBaseline, record.resultTree);
+			record.cumulativeChangedFiles = cumulative.changedFiles;
+			record.cumulativeDiffPreview = cumulative.preview;
+		} else {
+			record.cumulativeChangedFiles = [...new Set(todo.revisions.flatMap((revision) => revision.changedFiles))];
+			record.cumulativeDiffPreview = todo.revisions.map((revision) => revision.diffPreview).filter(Boolean).join("\n\n");
+		}
+		this.changed(ctx);
+	}
+
+	private async runTodo(ctx: ExtensionContext, todo: WorkflowTodo, models: CompleteWorkflowModelConfig, store: WorkflowSessionStore, lease: WorkflowLease, signal: AbortSignal): Promise<void> {
 		try {
-			// A retry after a failed run must remain a distinct round. Human feedback
-			// already owns a record; only an unstarted feedback record may be resumed
-			// after a session restart, while automatic and command retries create one.
-			const pending = latestRevision(todo);
-			const resumableFeedback = pending !== undefined && Boolean(pending.humanFeedback) && !pending.implementation && !pending.review && !pending.baselineTree && !pending.resultTree && !pending.diffPreview;
-			const record: WorkflowRevision = revisionRecord ?? (resumableFeedback ? pending! : { changedFiles: [] });
-			if (record !== pending) todo.revisions.push(record);
-			todo.status = revision ? "revising" : "implementing";
-			todo.attempts++;
-			todo.automaticReviewCycles++;
-			todo.error = undefined;
-			this.changed(ctx);
-
-			const content = this.hooks.content();
-			const invocation = implementerInvocation(this.state, todo, content);
-			// Each round is measured from the worktree as it exists immediately before
-			// the implementer runs, so review focuses on only that round's changes.
-			record.baselineTree = await snapshotWorktree(ctx.cwd);
-			signal.throwIfAborted();
-			// Keep snapshotting in a finally block: an implementer can modify the
-			// worktree before its process fails or its structured response is rejected.
-			// Those edits are still an attempted revision and must not become the next
-			// round's invisible baseline.
-			try {
-				const run = await (this.hooks.runAgent ?? runAgent)({
-					cwd: ctx.cwd,
-					roleName: "workflow-implementer",
-					...invocation,
-					tools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
-					model: models.implementer.model,
-					thinkingLevel: models.implementer.thinkingLevel,
-					signal,
-				});
-				record.implementation = {
-					...validateImplementation(extractProtocolJson<ImplementationResult>(run.output, "workflow-implementation")),
-					model: models.implementer.model,
-					...(models.implementer.thinkingLevel ? { thinkingLevel: models.implementer.thinkingLevel } : {}),
-				};
-			} finally {
-				record.resultTree = await snapshotWorktree(ctx.cwd);
-				const diff = await diffTrees(ctx.cwd, record.baselineTree, record.resultTree);
-				record.changedFiles = diff.changedFiles.length ? diff.changedFiles : record.implementation?.filesChanged ?? [];
-				record.diffPreview = diff.preview;
-
-				// Reviewer handoffs remain scoped to the current automatic revision.
-				// Human review spans every automatic cycle since the human last supplied
-				// feedback (or since the todo began for its first checkpoint).
-				const humanCheckpointDiff = await diffForHumanCheckpoint(ctx.cwd, todo);
-				record.humanCheckpointChangedFiles = humanCheckpointDiff.changedFiles;
-				record.humanCheckpointDiffPreview = humanCheckpointDiff.preview;
-
-				// Keep the per-revision diff above for round-by-round review, while also
-				// caching a todo-wide view for downstream handoffs.
-				const firstBaseline = todo.revisions.find((revision) => revision.baselineTree)?.baselineTree;
-				if (firstBaseline && record.resultTree) {
-					const cumulative = await diffTrees(ctx.cwd, firstBaseline, record.resultTree);
-					record.cumulativeChangedFiles = cumulative.changedFiles;
-					record.cumulativeDiffPreview = cumulative.preview;
-				} else {
-					record.cumulativeChangedFiles = [...new Set(todo.revisions.flatMap((revision) => revision.changedFiles))];
-					record.cumulativeDiffPreview = todo.revisions
-						.map((revision) => revision.diffPreview)
-						.filter((preview): preview is string => Boolean(preview))
-						.join("\n\n");
+			while (true) {
+				signal.throwIfAborted();
+				const interrupted = todo.checkpoint !== undefined;
+				let record = todo.checkpoint ? todo.revisions[todo.checkpoint.revisionIndex] : undefined;
+				if (!record) {
+					const pending = latestRevision(todo);
+					record = pending?.humanFeedback && !pending.implementation && !pending.baselineTree && !pending.resultTree ? pending : { changedFiles: [] };
+					if (record !== pending) todo.revisions.push(record);
+					todo.automaticReviewCycles++;
+					todo.checkpoint = { role: "implementer", revisionIndex: todo.revisions.length - 1 };
 				}
-				this.changed(ctx);
-			}
-
-			signal.throwIfAborted();
-			if (record.implementation?.status === "blocked") {
-				record.review = { verdict: "escalate", summary: "The implementer reported that the task is blocked.", findings: [record.implementation.notes ?? "No blocker details supplied."] };
+				todo.error = undefined;
+				const content = this.hooks.content();
+				if (!record.implementation) {
+					todo.status = todo.attempts ? "revising" : "implementing";
+					todo.attempts++;
+					// Persist the original baseline before any subprocess can change files.
+					record.baselineTree ??= await snapshotWorktree(ctx.cwd);
+					const prepared = store.prepare(this.state, todo, "implementer");
+					this.changed(ctx);
+					signal.throwIfAborted();
+					try {
+						const run = await (this.hooks.runAgent ?? runAgent)({
+							cwd: ctx.cwd, roleName: "workflow-implementer", sessionFile: prepared.session.file,
+							...implementerInvocation(this.state, todo, content, { continuing: prepared.hasHistory, interrupted }),
+							tools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
+							model: models.implementer.model, thinkingLevel: models.implementer.thinkingLevel,
+							signal, onProcess: lease.setChildPid,
+						});
+						signal.throwIfAborted();
+						record.implementation = { ...validateImplementation(extractProtocolJson<ImplementationResult>(run.output, "workflow-implementation")), model: models.implementer.model, thinkingLevel: models.implementer.thinkingLevel ?? "off" };
+						todo.checkpoint!.role = "reviewer";
+						this.changed(ctx);
+					} finally {
+						// Failed and cancelled implementers can leave edits; retain them in the review boundary.
+						await this.captureDiffs(ctx, todo, record);
+					}
+				} else if (interrupted) {
+					await this.captureDiffs(ctx, todo, record, true);
+				}
+				signal.throwIfAborted();
+				if (record.implementation?.status === "blocked") {
+					record.review = { verdict: "escalate", summary: "The implementer reported that the task is blocked.", findings: [record.implementation.notes ?? "No blocker details supplied."] };
+				} else if (!record.review) {
+					todo.status = "reviewing";
+					todo.checkpoint!.role = "reviewer";
+					const prepared = store.prepare(this.state, todo, "reviewer");
+					this.changed(ctx);
+					const run = await (this.hooks.runAgent ?? runAgent)({
+						cwd: ctx.cwd, roleName: "workflow-reviewer", sessionFile: prepared.session.file,
+						...reviewerInvocation(this.state, todo, content, { continuing: prepared.hasHistory, interrupted }),
+						tools: ["read", "grep", "find", "ls"],
+						model: models.reviewer.model, thinkingLevel: models.reviewer.thinkingLevel,
+						signal, onProcess: lease.setChildPid,
+					});
+					signal.throwIfAborted();
+					record.review = { ...validateReview(extractProtocolJson<ReviewResult>(run.output, "workflow-review")), model: models.reviewer.model, thinkingLevel: models.reviewer.thinkingLevel ?? "off" };
+					this.changed(ctx);
+				}
+				if (shouldAutomaticallyRevise(todo)) {
+					// The completed checkpoint remains durable until the next revision is allocated.
+					todo.checkpoint = undefined;
+					continue;
+				}
+				todo.checkpoint = undefined;
 				todo.status = "awaiting-user";
 				this.state.executing = false;
 				this.changed(ctx);
-				ctx.ui.notify(`${todoSummary(todo)}\n\nUse /workflow feedback or /workflow abort.`, "warning");
+				const approved = record.review?.verdict === "approve";
+				ctx.ui.notify(`${approved ? "Reviewer approved; your approval is required." : "Workflow escalated for your decision."}\n\n${todoSummary(todo)}\n\nUse /workflow review.`, approved ? "info" : "warning");
 				return;
 			}
-
-			todo.status = "reviewing";
-			this.changed(ctx);
-			const reviewInvocation = reviewerInvocation(this.state, todo, content);
-			const reviewRun = await (this.hooks.runAgent ?? runAgent)({
-				cwd: ctx.cwd,
-				roleName: "workflow-reviewer",
-				...reviewInvocation,
-				tools: ["read", "grep", "find", "ls"],
-				model: models.reviewer.model,
-				thinkingLevel: models.reviewer.thinkingLevel,
-				signal,
-			});
-			record.review = {
-				...validateReview(extractProtocolJson<ReviewResult>(reviewRun.output, "workflow-review")),
-				model: models.reviewer.model,
-				...(models.reviewer.thinkingLevel ? { thinkingLevel: models.reviewer.thinkingLevel } : {}),
-			};
-			this.changed(ctx);
-
-			if (shouldAutomaticallyRevise(todo)) {
-				todo.status = "revising";
-				this.changed(ctx);
-				await this.runTodo(ctx, todo, true, models, undefined, signal, cancellation);
-				return;
-			}
-
-			todo.status = "awaiting-user";
-			this.state.executing = false;
-			this.changed(ctx);
-			const kind = record.review!.verdict === "approve" ? "Reviewer approved; your approval is required." : "Workflow escalated for your decision.";
-			ctx.ui.notify(`${kind}\n\n${todoSummary(todo)}\n\nUse /workflow review.`, record.review!.verdict === "approve" ? "info" : "warning");
 		} catch (error) {
-			if (cancellation.aborted) return;
-			todo.status = "failed";
-			todo.error = error instanceof Error ? error.message : String(error);
+			todo.status = signal.aborted ? "interrupted" : "failed";
+			todo.error = signal.aborted ? "Execution was interrupted. Use /workflow execute or /workflow resume to continue." : error instanceof Error ? error.message : String(error);
 			this.state.executing = false;
 			this.changed(ctx);
-			ctx.ui.notify(`Workflow todo ${todo.step} failed: ${todo.error}`, "error");
+			if (!signal.aborted) ctx.ui.notify(`Workflow todo ${todo.step} failed: ${todo.error}`, "error");
 		}
 	}
 }

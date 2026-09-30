@@ -1,3 +1,4 @@
+// Role invocations supply workflow plans, skills, feedback, and revision context.
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { MarkdownContent, WorkflowContent } from "../content.ts";
@@ -69,9 +70,65 @@ test("implementers retain human requirements alongside later reviewer findings",
 		{ changedFiles: [] },
 	];
 	const invocation = implementerInvocation(stateWith(retried), retried, content());
-	assert.match(invocation.task, /Keep the compatibility behavior\./);
+	assert.match(invocation.systemPrompt, /Keep the compatibility behavior\./);
 	assert.match(invocation.task, /Use the compatibility adapter\./);
-	assert.match(invocation.task, /Human revision requirements \(take precedence/);
+	assert.match(invocation.systemPrompt, /Human revision requirements \(take precedence/);
+});
+
+for (const [role, invoke] of [["implementer", implementerInvocation], ["reviewer", reviewerInvocation]] as const) {
+	test(`${role} receives all human feedback chronologically through automatic retries`, () => {
+		const task = todo();
+		task.revisions = [
+			{ humanFeedback: "Remove the fallback.\nKeep errors visible.", changedFiles: [] },
+			{ changedFiles: [] },
+			{ humanFeedback: "Change the label to Retry.", changedFiles: [] },
+			{ implementation: { status: "completed", summary: "updated label", filesChanged: [], tests: [] }, changedFiles: [] },
+		];
+		const invocation = invoke(stateWith(task), task, content());
+		assert.ok(invocation.systemPrompt.includes("Revision 1:\nRemove the fallback.\nKeep errors visible.\n\nRevision 3:\nChange the label to Retry."));
+	});
+
+	test(`${role} is instructed to preserve earlier requirements unless explicitly superseded`, () => {
+		const task = todo();
+		const invocation = invoke(stateWith(task), task, content());
+		assert.ok(invocation.systemPrompt.includes("Human feedback is listed in chronological order. Preserve all earlier human requirements unless later human feedback explicitly supersedes them."));
+	});
+
+	test(`${role} receives human feedback only for the assigned todo`, () => {
+		const prior = todo();
+		prior.status = "approved";
+		prior.revisions[0].humanFeedback = "Remove the earlier task's fallback.";
+		const current = todo();
+		current.step = 2;
+		current.revisions[0].humanFeedback = "Keep the current task's fallback.";
+		const invocation = invoke(stateWith(prior, current), current, content());
+		assert.match(invocation.systemPrompt, /Keep the current task's fallback\./);
+		assert.doesNotMatch(invocation.systemPrompt, /Remove the earlier task's fallback\./);
+	});
+}
+
+test("continuations use a short update while requirements stay in the authoritative snapshot", () => {
+	const task = todo();
+	task.revisions[0].humanFeedback = "Keep errors visible.";
+	const invocation = implementerInvocation(stateWith(task), task, content(), { continuing: true });
+	assert.match(invocation.task, /^Continue todo 1/);
+	assert.doesNotMatch(invocation.task, /Canonical workflow plan|Completed prerequisite handoffs|Keep errors visible/);
+	assert.match(invocation.systemPrompt, /Keep errors visible\./);
+});
+
+test("interrupted implementers reconcile edits before repeating work", () => {
+	const task = todo();
+	const invocation = implementerInvocation(stateWith(task), task, content(), { continuing: true, interrupted: true });
+	assert.match(invocation.task, /Reconcile the existing edits/);
+	assert.match(invocation.task, /do not blindly repeat earlier tool calls/);
+});
+
+test("returning reviewers reassess current changes despite earlier verdicts", () => {
+	const task = todo();
+	const invocation = reviewerInvocation(stateWith(task), task, content(), { continuing: true });
+	assert.match(invocation.task, /^Review again todo 1/);
+	assert.match(invocation.task, /independently of your earlier verdicts/);
+	assert.match(invocation.task, /newest supplied diff/);
 });
 
 test("implementers and reviewers receive the identical complete canonical plan", () => {
@@ -88,14 +145,14 @@ test("implementers and reviewers receive the identical complete canonical plan",
 
 	const implementation = implementerInvocation(state, current, content());
 	const review = reviewerInvocation(state, current, content());
-	assert.ok(implementation.task.includes(canonical));
-	assert.ok(review.task.includes(canonical));
-	assert.ok(implementation.task.includes(formatWorkflowTodo(current)));
-	assert.ok(review.task.includes(formatWorkflowTodo(current)));
-	assert.match(implementation.task, /Move `old\.ts` to `exact\/new\.ts`\./);
-	assert.match(review.task, /Move `old\.ts` to `exact\/new\.ts`\./);
-	assert.match(implementation.task, /Todo 1: approved/);
-	assert.match(review.task, /Todo 3: upcoming/);
+	assert.ok(implementation.systemPrompt.includes(canonical));
+	assert.ok(review.systemPrompt.includes(canonical));
+	assert.ok(implementation.systemPrompt.includes(formatWorkflowTodo(current)));
+	assert.ok(review.systemPrompt.includes(formatWorkflowTodo(current)));
+	assert.match(implementation.systemPrompt, /Move `old\.ts` to `exact\/new\.ts`\./);
+	assert.match(review.systemPrompt, /Move `old\.ts` to `exact\/new\.ts`\./);
+	assert.match(implementation.systemPrompt, /Todo 1: approved/);
+	assert.match(review.systemPrompt, /Todo 3: upcoming/);
 	assert.match(implementation.systemPrompt, /Do not implement work assigned to upcoming todos/);
 	assert.match(implementation.systemPrompt, /return blocked instead of absorbing future scope/);
 	assert.match(implementation.systemPrompt, /Explicit human revision requirements override this boundary/);
@@ -111,7 +168,7 @@ test("later implementers are told when prerequisite todos were completed manuall
 	const current = todo();
 	Object.assign(current, { step: 2, title: "Continue work", instructions: ["Use the prerequisite."], status: "implementing" });
 	const invocation = implementerInvocation(stateWith(manual, current), current, content());
-	assert.match(invocation.task, /Todo 1: completed-manually/);
+	assert.match(invocation.systemPrompt, /Todo 1: completed-manually/);
 	assert.match(invocation.task, /Todo 1: Completed manually; inspect the current worktree/);
 });
 
@@ -123,7 +180,7 @@ test("reviewers receive only the current revision files and diff", () => {
 	];
 	const invocation = reviewerInvocation(stateWith(reviewed), reviewed, content());
 	assert.match(invocation.systemPrompt, /Treat supplied human feedback as revision requirements/);
-	assert.match(invocation.task, /Preserve the public API\./);
+	assert.match(invocation.systemPrompt, /Preserve the public API\./);
 	assert.match(invocation.task, /second/);
 	assert.match(invocation.task, /two\.ts/);
 	assert.match(invocation.task, /diff two/);
