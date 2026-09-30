@@ -42,7 +42,7 @@ Unless explicitly asked:
   the code. Only describe what the code currently does and why.
 - Refrain from rewording existing comments if they still apply to the new
   changes being made. Only change them if they no longer made sense or didn't
-  makse sense to begin with. If a comment can be corrected by simply replacing
+  makes sense to begin with. If a comment can be corrected by simply replacing
   a few words, then do that instead of rewriting the whole thing.
 
 ### Writing Tests
@@ -58,7 +58,7 @@ In satisfying this ethos, it is okay to violate the DRY principle and accept
 some duplication between test cases. Simplicity is king.
 
 For each test case, describe what it is the test is verifying in a
-comment/docstring/description (langauge dependent). Don't state what steps the
+comment/docstring/description (language dependent). Don't state what steps the
 test takes, but rather what behaviour is being verified.
 
 Test cases should have a single purpose. Don't add tests for new behaviour by
@@ -69,6 +69,12 @@ Test fixtures or suites should also have comments and/or documentation that
 describe their scope e.g. what parts of the code are covered by the test cases
 in the fixture.
 
+Aim to name and describe the module/fixture/suite containing the test cases as
+generic, even if the test cases contained within are only testing one part of
+the behaviour. That way, other test cases that exercise the same unit under test
+can be added later without invalidating scope of the containing
+module/fixture/suite.
+
 Unless explicitly asked, don't add tests for things that aren't supported. Even
-in cases where you've taken functionality out or made a braking change, there's
+in cases where you've taken functionality out or made a breaking change, there's
 no need to test that the old way is no longer supported.
