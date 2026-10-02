@@ -11,5 +11,6 @@
   "defaultTools": [
     "+codemode"
   ],
-  "hideThinkingBlock": false
+  "hideThinkingBlock": false,
+  "tuiMode": "fullscreen"
 }

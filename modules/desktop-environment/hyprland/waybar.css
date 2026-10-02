@@ -25,10 +25,15 @@ window#waybar {
 }
 
 #submap, #pulseaudio, #network, #bluetooth,
-#battery, #backlight, #idle_inhibitor, #tray, #clock {
+#battery, #backlight, #custom-blue-light, #idle_inhibitor, #tray, #clock {
     padding: 0 8px;
 }
 
-#idle_inhibitor.activated {
+#idle_inhibitor.activated,
+#custom-blue-light.enabled {
     color: #e5c07b;
+}
+
+#custom-blue-light.unavailable {
+    color: #999999;
 }

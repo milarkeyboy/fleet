@@ -126,7 +126,6 @@ it. Use the original download rather than manually launching the temporary
     - Work laptop (`work-laptop`)
     - Home server (`server`)
 - Fix shutdown on desktop: always reboots
-- Transition to sway, configured like Manjaro community edition
 - Add apps for work laptop, e.g. Microsoft teams (PWA?), with working screen
   share
 - Game streaming from home pc to home server (e.g. sunshine/moonlight)

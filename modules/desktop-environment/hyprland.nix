@@ -27,6 +27,27 @@ let
     // serviceConfig;
   };
 
+  # We override the hyprsunset version here to allow the waybar to 'get' the
+  # status for display purposes.
+  hyprsunset = pkgs.hyprsunset.overrideAttrs (finalAttrs: {
+    version = "0.4.0";
+    src = pkgs.fetchFromGitHub {
+      owner = "hyprwm";
+      repo = "hyprsunset";
+      tag = "v${finalAttrs.version}";
+      hash = "sha256-MhrVi5f6n9eJv8kcDngb8j2P5F3i5/GCR77+qIWnjf4=";
+    };
+  });
+
+  blueLight = pkgs.writeShellApplication {
+    name = "fleet-blue-light";
+    runtimeInputs = [
+      config.programs.hyprland.package
+      pkgs.coreutils
+    ];
+    text = builtins.readFile ./hyprland/blue-light.sh;
+  };
+
   clipboard = pkgs.writeShellApplication {
     name = "fleet-clipboard";
     runtimeInputs = with pkgs; [
@@ -47,6 +68,23 @@ in
   # Use the packaged units and their standard graphical-session integration.
   programs.hyprlock.enable = true;
   programs.waybar.enable = true;
+
+  # Dark theme by default
+  programs.dconf = {
+    enable = true;
+    profiles.user.databases = [
+      {
+        settings."org/gnome/desktop/interface" = {
+          color-scheme = "prefer-dark";
+          gtk-theme = "Adwaita-dark";
+        };
+      }
+    ];
+  };
+  qt = {
+    enable = true;
+    style = "adwaita-dark";
+  };
 
   services.greetd = {
     enable = true;
@@ -69,6 +107,7 @@ in
       "gtk"
     ];
     "org.freedesktop.impl.portal.Secret" = [ "gnome-keyring" ];
+    "org.freedesktop.impl.portal.Settings" = [ "gtk" ];
   };
 
   environment.sessionVariables = {
@@ -92,7 +131,9 @@ in
   environment.systemPackages = with pkgs; [
     adwaita-icon-theme
     brightnessctl
+    gnome-themes-extra
     grimblast
+    hyprsunset
     lxqt.pcmanfm-qt
     playerctl
     rofi
@@ -101,6 +142,7 @@ in
     xdg-utils
     libsForQt5.qtwayland
     qt6.qtwayland
+    blueLight
     clipboard
   ];
 
@@ -109,11 +151,13 @@ in
     "xdg/hypr/conf.d/outputs.lua".text = lib.mkDefault "";
     "xdg/gtk-3.0/settings.ini".text = ''
       [Settings]
+      gtk-theme-name=Adwaita-dark
       gtk-cursor-theme-name=Adwaita
       gtk-cursor-theme-size=24
     '';
     "xdg/gtk-4.0/settings.ini".text = ''
       [Settings]
+      gtk-theme-name=Adwaita-dark
       gtk-cursor-theme-name=Adwaita
       gtk-cursor-theme-size=24
     '';
@@ -164,6 +208,18 @@ in
           fail_text = <i>$FAIL</i>
       }
     '';
+    # Profiles apply on startup and supersede manual IPC changes at each boundary.
+    "xdg/hypr/hyprsunset.conf".text = ''
+      profile {
+          time = 07:00
+          identity = true
+      }
+
+      profile {
+          time = 20:00
+          temperature = 3500
+      }
+    '';
     "xdg/hypr/hypridle.conf".text = ''
       general {
           lock_cmd = ${pkgs.procps}/bin/pidof hyprlock || ${pkgs.hyprlock}/bin/hyprlock -c /etc/xdg/hypr/hyprlock.conf
@@ -194,6 +250,7 @@ in
         "bluetooth"
         "battery"
         "backlight"
+        "custom/blue-light"
         "idle_inhibitor"
         "tray"
         "clock"
@@ -239,6 +296,20 @@ in
         on-scroll-up = "${pkgs.brightnessctl}/bin/brightnessctl set +5%";
         on-scroll-down = "${pkgs.brightnessctl}/bin/brightnessctl set 5%-";
       };
+      "custom/blue-light" = {
+        exec = "${lib.getExe blueLight} status | ${lib.getExe pkgs.jq} -Rc '{alt: ., class: .}'";
+        return-type = "json";
+        format = "Night {icon}";
+        format-icons = {
+          enabled = "on";
+          disabled = "off";
+          unavailable = "?";
+        };
+        tooltip-format = "Blue light filter: {icon}\nClick to toggle\nAutomatic: 3500 K, 20:00–07:00 local time";
+        interval = 5;
+        on-click = "${lib.getExe blueLight} toggle";
+        exec-on-event = true;
+      };
       idle_inhibitor = {
         format = "{icon}";
         format-icons = {
@@ -254,6 +325,15 @@ in
   systemd.packages = [ pkgs.mako ];
   systemd.user.services = {
     mako.wantedBy = [ "graphical-session.target" ];
+    hyprsunset =
+      (sessionService "Hyprland blue light filter" {
+        ExecStart = lib.getExe hyprsunset;
+        # Keep the session's schedule tied to the system configuration.
+        Environment = "XDG_CONFIG_HOME=/etc/xdg";
+      })
+      // {
+        unitConfig.ConditionEnvironment = "WAYLAND_DISPLAY";
+      };
     polkit-agent = sessionService "Hyprland authentication agent" {
       ExecStart = "${pkgs.polkit_gnome}/libexec/polkit-gnome-authentication-agent-1";
     };
