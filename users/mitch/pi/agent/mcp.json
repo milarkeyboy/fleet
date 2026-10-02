@@ -32,6 +32,9 @@
         "search_labels": "codemode",
         "semantic_search": "codemode"
       }
+    },
+    "atlassian": {
+      "url": "https://mcp.atlassian.com/v2/mcp"
     }
   }
 }
