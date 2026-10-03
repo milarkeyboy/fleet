@@ -73,6 +73,30 @@ in
   # aliases and prompts belong in Home Manager.
   programs.zsh.enable = true;
 
+  environment.systemPackages = with pkgs; [
+    # Command line utilities
+    bat
+    btop
+    fd
+    file
+    jq
+    pciutils
+    ripgrep
+    tree
+    unzip
+    usbutils
+    zip
+  ];
+
+  # Enable SSH agent
+  programs.ssh = {
+    startAgent = true;
+    # Add a key to ssh-agent after its passphrase is entered successfully.
+    extraConfig = ''
+      AddKeysToAgent yes
+    '';
+  };
+
   # State version pins compatibility defaults. Do not bump this just because
   # the NixOS input changes; only change it after reading the release notes.
   system.stateVersion = "26.05";

@@ -19,30 +19,8 @@
     pulse.enable = true;
   };
 
-  # Enable SSH agent
-  programs.ssh = {
-    startAgent = true;
-    # Add a key to ssh-agent after its passphrase is entered successfully.
-    extraConfig = ''
-      AddKeysToAgent yes
-    '';
-  };
-
   # Workstation packages are available to every user on interactive machines.
   environment.systemPackages = with pkgs; [
-    # Command line utilities
-    bat
-    btop
-    fd
-    file
-    jq
-    pciutils
-    ripgrep
-    tree
-    unzip
-    usbutils
-    zip
-
     # TUI Spotify player
     inputs.spotatui.packages.${pkgs.stdenv.hostPlatform.system}.default
   ];
