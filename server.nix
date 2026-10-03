@@ -5,6 +5,11 @@
     ./hardware-configurations/server.nix
     ./modules/base.nix
     ./modules/server.nix
+
+    # Not sure if this is needed for the server, but it'll help with developing
+    # a configuration.
+    ./modules/coding.nix
+
     ./users/mitch.nix
   ];
 
