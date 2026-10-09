@@ -97,17 +97,20 @@
     "element-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1791456755,
-        "narHash": "sha256-vlcoCZ3HowEfFj1TBKg4ncNoKLVghZg0H7CNAzKayNA=",
-        "owner": "kushview",
-        "repo": "element",
-        "rev": "618e1ac094839be64849bcadc145363702527a4f",
-        "type": "github"
+        "lastModified": 1785939732,
+        "narHash": "sha256-TQOPBXXo/08r8h9oocWCLHi1V7VlFF1D19hhhDc/HaQ=",
+        "ref": "refs/tags/1.2.0",
+        "rev": "0911674095169d05bfbd94214f768c10a5cd1820",
+        "revCount": 4251,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/kushview/element"
       },
       "original": {
-        "owner": "kushview",
-        "repo": "element",
-        "type": "github"
+        "ref": "refs/tags/1.2.0",
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/kushview/element"
       }
     },
     "flake-parts": {
@@ -305,11 +308,11 @@
         "nixpkgs-x86_64-darwin": "nixpkgs-x86_64-darwin"
       },
       "locked": {
-        "lastModified": 1791287920,
-        "narHash": "sha256-U/C8MxHzUaSi+BT5hMPAjyuDvf6H+QR3G5k93ALySPE=",
+        "lastModified": 1791458664,
+        "narHash": "sha256-+G5kYoy/xb2pdX9rBOetC2eKp42cvfbppYdFZP9Lesg=",
         "owner": "lukasl-dev",
         "repo": "pi.nix",
-        "rev": "6b4ac7c76a25dd3fb14553ace2277e809099308b",
+        "rev": "d37155f96c30d4727ed37f9563359a9a50d530db",
         "type": "github"
       },
       "original": {
