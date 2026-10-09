@@ -2,6 +2,7 @@
   lib,
   stdenv,
   inputs,
+  fetchFromGitHub,
   autoPatchelfHook,
   cmake,
   ninja,
@@ -26,10 +27,48 @@
   xvfb-run,
 }:
 
+let
+  # Follow upstream's dependency choices while keeping CMake's build offline.
+  cmakeRevision =
+    file: variable:
+    let
+      match = builtins.match ".*set\\(${variable}[[:space:]]+\"?([[:alnum:]._-]+)\"?[[:space:]]*\\).*" (
+        builtins.readFile "${inputs.element}/${file}"
+      );
+    in
+    if match == null then
+      throw "Element: could not extract ${variable} from ${file}"
+    else
+      builtins.head match;
+
+  juceSrc = fetchFromGitHub {
+    owner = "juce-framework";
+    repo = "JUCE";
+    rev = cmakeRevision "cmake/FindJUCE.cmake" "ELEMENT_JUCE_VERSION";
+
+    # If hash verification fails after an Element update, replace VERSION below
+    # with ELEMENT_JUCE_VERSION from the locked source's cmake/FindJUCE.cmake.
+    # Use the returned hash:
+    # nix store prefetch-file --json --unpack https://github.com/juce-framework/JUCE/archive/VERSION.tar.gz
+    hash = "sha256-TKqW2rsFMAO1HJZ9IFQ7myOzNRScqR0gmLSLQA5Sw28=";
+  };
+
+  sol2Src = fetchFromGitHub {
+    owner = "ThePhD";
+    repo = "sol2";
+    rev = cmakeRevision "cmake/FindSol2.cmake" "ELEMENT_SOL2_REVISION";
+
+    # If hash verification fails after an Element update, replace REVISION below
+    # with ELEMENT_SOL2_REVISION from the locked source's cmake/FindSol2.cmake.
+    # Use the returned hash:
+    # nix store prefetch-file --json --unpack https://github.com/ThePhD/sol2/archive/REVISION.tar.gz
+    hash = "sha256-0q0ew2ql0ED5ynYPQkq4UHq21VjiqSZTg09XsrrBwqI=";
+  };
+in
 stdenv.mkDerivation (finalAttrs: {
   pname = "kushview-element";
   version = "1.2.0";
-  src = inputs.element-src;
+  src = inputs.element;
 
   nativeBuildInputs = [
     autoPatchelfHook
@@ -75,8 +114,8 @@ stdenv.mkDerivation (finalAttrs: {
   ];
 
   cmakeFlags = [
-    "-DFETCHCONTENT_SOURCE_DIR_JUCE=${inputs.element-juce-src}"
-    "-DFETCHCONTENT_SOURCE_DIR_SOL2=${inputs.element-sol2-src}"
+    "-DFETCHCONTENT_SOURCE_DIR_JUCE=${juceSrc}"
+    "-DFETCHCONTENT_SOURCE_DIR_SOL2=${sol2Src}"
     "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
     "-DSOL2_ENABLE_INSTALL=OFF"
     "-DELEMENT_ENABLE_UPDATER=OFF"

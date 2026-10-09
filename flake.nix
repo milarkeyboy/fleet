@@ -5,18 +5,9 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     pi.url = "github:lukasl-dev/pi.nix";
 
-    # Element's CMake build needs these sources without network access.
-    # TODO: use unspecified revision, rely on updating through lock file
-    element-src = {
-      url = "git+https://github.com/kushview/element?ref=refs/tags/1.2.0&submodules=1";
-      flake = false;
-    };
-    element-juce-src = {
-      url = "github:juce-framework/JUCE/8.0.13";
-      flake = false;
-    };
-    element-sol2-src = {
-      url = "github:ThePhD/sol2/c1f95a773c6f8f4fde8ca3efe872e7286afe4444";
+    # Include Element's CLAP submodule; flake.lock pins the source revision.
+    element = {
+      url = "git+https://github.com/kushview/element?submodules=1";
       flake = false;
     };
 
