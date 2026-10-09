@@ -60,6 +60,56 @@
         "type": "github"
       }
     },
+    "element-juce-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1779187726,
+        "narHash": "sha256-TKqW2rsFMAO1HJZ9IFQ7myOzNRScqR0gmLSLQA5Sw28=",
+        "owner": "juce-framework",
+        "repo": "JUCE",
+        "rev": "7c9d3783b127263d72bb65fe0a7e2dc8a02a7ac2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "juce-framework",
+        "ref": "8.0.13",
+        "repo": "JUCE",
+        "type": "github"
+      }
+    },
+    "element-sol2-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1741381295,
+        "narHash": "sha256-0q0ew2ql0ED5ynYPQkq4UHq21VjiqSZTg09XsrrBwqI=",
+        "owner": "ThePhD",
+        "repo": "sol2",
+        "rev": "c1f95a773c6f8f4fde8ca3efe872e7286afe4444",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ThePhD",
+        "repo": "sol2",
+        "rev": "c1f95a773c6f8f4fde8ca3efe872e7286afe4444",
+        "type": "github"
+      }
+    },
+    "element-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1791456755,
+        "narHash": "sha256-vlcoCZ3HowEfFj1TBKg4ncNoKLVghZg0H7CNAzKayNA=",
+        "owner": "kushview",
+        "repo": "element",
+        "rev": "618e1ac094839be64849bcadc145363702527a4f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "kushview",
+        "repo": "element",
+        "type": "github"
+      }
+    },
     "flake-parts": {
       "inputs": {
         "nixpkgs-lib": "nixpkgs-lib"
@@ -270,6 +320,9 @@
     },
     "root": {
       "inputs": {
+        "element-juce-src": "element-juce-src",
+        "element-sol2-src": "element-sol2-src",
+        "element-src": "element-src",
         "home-manager": "home-manager",
         "musnix": "musnix",
         "nixpkgs": "nixpkgs_2",
