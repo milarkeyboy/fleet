@@ -20,6 +20,7 @@
 
 let
   system = pkgs.stdenv.hostPlatform.system;
+  neuralAmpModeler = inputs.nixpkgs-unstable.legacyPackages.${system}.neural-amp-modeler-lv2;
   yabridgePkgs = inputs.yabridge-flake.packages.${system};
   yabridgeWine =
     inputs.yabridge-flake.inputs.nixpkgs.legacyPackages.${system}.wineWow64Packages.staging;
@@ -99,7 +100,7 @@ let
       crudini --set "$reaper_config_file" reaper linux_audio_bufs 3
       crudini --set "$reaper_config_file" reaper linux_disable_pm 1
 
-      ln -sfnT ${pkgs.neural-amp-modeler-lv2}/lib/lv2/neural_amp_modeler.lv2 "$plugin_link"
+      ln -sfnT ${neuralAmpModeler}/lib/lv2/neural_amp_modeler.lv2 "$plugin_link"
 
       echo "Applied declarative Reaper settings"
     '';
@@ -150,7 +151,7 @@ in
     reaper
 
     # Native plugins
-    neural-amp-modeler-lv2
+    neuralAmpModeler
 
     # Bridging Windows plugins
     yabridgePkgs.yabridge

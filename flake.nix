@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     pi.url = "github:lukasl-dev/pi.nix";
 
     # Include Element's CLAP submodule; flake.lock pins the source revision.
