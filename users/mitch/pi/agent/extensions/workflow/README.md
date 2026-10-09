@@ -11,7 +11,7 @@ subagent or planner role.
 conversational planning
   → implementer (isolated context)
   → reviewer (separate, read-only conversation)
-  → one automatic revision when requested
+  → automatic revisions when requested, up to the configured cycle maximum
   → human acceptance
      ↳ feedback → implementer → reviewer (repeat as needed)
   → next todo
@@ -69,6 +69,46 @@ the inherited environment.
 
 The exact model and thinking level used are recorded with each implementation
 and review artefact and shown in todo summaries.
+
+## Context and review configuration
+
+Edit `~/.pi/agent/workflow/config.json` to configure discovery independently for
+each role and the maximum number of implement/review cycles per human checkpoint:
+
+```json
+{
+  "implementer": {
+    "model": "openai-codex/gpt-5.6-sol",
+    "thinkingLevel": "high",
+    "context-file-discovery": false
+  },
+  "reviewer": {
+    "model": "openai-codex/gpt-5.6-sol",
+    "thinkingLevel": "high",
+    "context-file-discovery": true
+  },
+  "max-review-cycles": 3
+}
+```
+
+`context-file-discovery` defaults to `true`. Setting it to `false` adds Pi's
+`--no-context-files` argument for that role, disabling automatic discovery of
+user, ancestor-directory and working-directory `AGENTS.md`/`CLAUDE.md` files and
+their supported variants. Role prompts, the workflow plan and assigned skills
+are still supplied. Supply selected instructions through role Markdown or todo
+instructions when discovery is disabled.
+
+`max-review-cycles` defaults to `2` and must be a positive safe integer. It counts
+the initial implement/review cycle; `1` performs that cycle and sends any
+requested changes straight to the human checkpoint. Human feedback resets the
+count and starts a fresh allowance. Approval or escalation can end the cycle
+before the maximum is reached.
+
+Configuration is reloaded before each execution, resumption or human-feedback
+round and remains fixed during its automatic revisions. `/workflow model`
+preserves discovery settings and the cycle maximum. Changes affect subsequent
+invocations; existing role-conversation history remains available. Start a new
+plan for fresh conversations if previously loaded context must be removed.
 
 ## Planning and optional skills
 
@@ -165,8 +205,8 @@ JSON-mode subprocess launched with:
 - `--no-prompt-templates`
 - the role's required configured model and thinking level
 
-Subagents retain Pi's normal context-file discovery, including applicable user
-and project `AGENTS.md` files. Both roles receive the complete canonical
+Subagents retain Pi's normal context-file discovery unless disabled for their
+role in `workflow/config.json`. Both roles receive the complete canonical
 workflow plan and a separate status list marking each todo as approved,
 completed manually, current, upcoming, or aborted. The plan is a scope boundary:
 implementers must not absorb upcoming work, and reviewers must flag scope
@@ -200,9 +240,11 @@ subprocess cleanup. This is intended for changes made directly by the user;
 manually completed todos remain visible to later subagents but have no generated
 implementation handoff.
 
-A reviewer returns `approve`, `request_changes`, or `escalate`. The first
-rejection receives one automatic revision and second review; another rejection
-escalates to the human checkpoint. Human feedback starts a fresh bounded cycle.
+A reviewer returns `approve`, `request_changes`, or `escalate`. Requested changes
+receive an automatic revision while the configured `max-review-cycles` allowance
+remains; otherwise execution pauses at the human checkpoint. The default of two
+cycles allows one automatic revision after the initial review. Human feedback
+starts a fresh allowance.
 
 Every acceptance checkpoint summary includes the chronological history for that
 todo: human feedback followed by the implementer and reviewer response for each

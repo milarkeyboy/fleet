@@ -1,10 +1,13 @@
 {
   "implementer": {
     "model": "openai-codex/gpt-6-luna",
-    "thinkingLevel": "high"
+    "thinkingLevel": "high",
+    "context-file-discovery": false
   },
   "reviewer": {
     "model": "openai-codex/gpt-6.1-sol",
-    "thinkingLevel": "medium"
-  }
+    "thinkingLevel": "medium",
+    "context-file-discovery": true
+  },
+  "max-review-cycles": 4
 }

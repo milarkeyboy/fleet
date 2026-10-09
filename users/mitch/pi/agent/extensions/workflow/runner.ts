@@ -15,6 +15,7 @@ export interface AgentRunOptions {
 	tools: string[];
 	model: string;
 	thinkingLevel?: string;
+	contextFileDiscovery?: boolean;
 	signal?: AbortSignal;
 	onUpdate?: (text: string) => void;
 	/** Track child ownership: 0 fences the spawn window; undefined records completed cleanup. */
@@ -62,6 +63,7 @@ export function buildAgentArgs(options: AgentRunOptions, promptPath: string): st
 		"--tools", options.tools.join(","),
 		"--append-system-prompt", promptPath,
 	];
+	if (options.contextFileDiscovery === false) args.push("--no-context-files");
 	args.push("--model", options.model);
 	args.push("--thinking", options.thinkingLevel ?? "off");
 	args.push(`Task: ${options.task}`);

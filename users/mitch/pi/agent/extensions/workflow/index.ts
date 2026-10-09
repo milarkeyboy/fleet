@@ -78,10 +78,11 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				return content;
 			},
 			sessions: (ctx) => new WorkflowSessionStore(path.join(getAgentDir(), "workflow", "sessions"), ctx.sessionManager.getSessionId(), ctx.cwd),
-			models: async (ctx, signal) => requireExecutableWorkflowModels(
-				await loadWorkflowModelConfig(getAgentDir()),
-				await createWorkflowSubprocessModelRegistry(signal ?? ctx.signal),
-			),
+			models: async (ctx, signal) => {
+				// Reload a single configuration snapshot for each execution or resumption.
+				const config = await loadWorkflowModelConfig(getAgentDir());
+				return requireExecutableWorkflowModels(config, await createWorkflowSubprocessModelRegistry(signal ?? ctx.signal));
+			},
 		});
 	}
 

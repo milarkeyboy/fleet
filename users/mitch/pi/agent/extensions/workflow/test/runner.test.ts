@@ -28,6 +28,16 @@ test("subagent arguments isolate extensions and skills while loading context fil
 	assert.deepEqual(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2), ["--model", "openai/gpt-coder"]);
 });
 
+test("disabled discovery emits Pi's no-context-files switch once", () => {
+	const args = buildAgentArgs({ ...options([]), contextFileDiscovery: false }, "/tmp/role.md");
+	assert.equal(args.filter((arg) => arg === "--no-context-files").length, 1);
+});
+
+test("explicitly enabled discovery retains Pi's normal context loading", () => {
+	const args = buildAgentArgs({ ...options([]), contextFileDiscovery: true }, "/tmp/role.md");
+	assert.equal(args.includes("--no-context-files"), false);
+});
+
 test("untagged subagents can run without any Agent Skill", () => {
 	const args = buildAgentArgs(options([]), "/tmp/role.md");
 	assert.ok(args.includes("--no-skills"));

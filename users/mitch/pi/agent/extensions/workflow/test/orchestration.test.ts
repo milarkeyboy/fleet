@@ -1,19 +1,22 @@
-// Per-todo conversation continuity and stage recovery without model credentials.
+// Per-todo orchestration, configuration, conversation continuity, and stage recovery without model credentials.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { loadWorkflowModelConfig, workflowConfigPath, writeWorkflowModelConfig, type CompleteWorkflowModelConfig, type WorkflowModelConfig } from "../config.ts";
 import { WorkflowOrchestrator } from "../orchestrator.ts";
 import { createWorkflowTodos } from "../planner.ts";
 import type { AgentRunOptions } from "../runner.ts";
 import { WorkflowSessionStore } from "../sessions.ts";
 import { cloneState, createWorkflowState, markWorkflowInterrupted, restoreState, type WorkflowState } from "../state.ts";
 
-function fixture() {
+function fixture(config: WorkflowModelConfig = {}) {
 	const root = mkdtempSync(path.join(os.tmpdir(), "workflow-orchestration-"));
+	mkdirSync(path.dirname(workflowConfigPath(root)), { recursive: true });
+	writeFileSync(workflowConfigPath(root), JSON.stringify({ implementer: { model: "test/impl" }, reviewer: { model: "test/review" }, ...config }));
 	const cwd = path.join(root, "work");
 	execFileSync("git", ["init", "-q", cwd]);
 	const store = new WorkflowSessionStore(path.join(root, "sessions"), "parent", cwd);
@@ -27,7 +30,7 @@ function fixture() {
 	function orchestrator(current = state) {
 		return new WorkflowOrchestrator(current, {
 			persist() { saved.push(cloneState(current)); }, updateUi() {}, sessions: () => store,
-			async models() { return { implementer: { model: "test/impl" }, reviewer: { model: "test/review" } }; },
+			async models() { return await loadWorkflowModelConfig(root) as CompleteWorkflowModelConfig; },
 			content: () => ({ planner: "", skills: {}, diagnostics: [], roles: {
 				implementer: { name: "implementer", body: "Implement.", filePath: "/impl.md", source: "bundled" },
 				reviewer: { name: "reviewer", body: "Review.", filePath: "/review.md", source: "bundled" },
@@ -45,6 +48,132 @@ function fixture() {
 	}
 	return { root, cwd, ctx, state, store, calls, saved, verdicts, controls, orchestrator, close: () => rmSync(root, { recursive: true, force: true }) };
 }
+
+test("omitted configuration preserves discovery and the two-cycle maximum", async () => {
+	const f = fixture();
+	try {
+		f.verdicts.push("request_changes", "request_changes");
+		await f.orchestrator().execute(f.ctx);
+		assert.equal(f.calls.length, 4);
+		assert.deepEqual(f.calls.map((call) => call.contextFileDiscovery), [undefined, undefined, undefined, undefined]);
+		assert.equal(f.state.todos[0].automaticReviewCycles, 2);
+		assert.equal(f.state.todos[0].status, "awaiting-user");
+	} finally { f.close(); }
+});
+
+for (const [implementer, reviewer] of [[false, true], [true, false]]) {
+	test(`role discovery settings are independent (implementer: ${implementer}, reviewer: ${reviewer})`, async () => {
+		const f = fixture({
+			implementer: { model: "test/impl", "context-file-discovery": implementer },
+			reviewer: { model: "test/review", "context-file-discovery": reviewer },
+		});
+		try {
+			await f.orchestrator().execute(f.ctx);
+			assert.deepEqual(f.calls.map((call) => call.contextFileDiscovery), [implementer, reviewer]);
+		} finally { f.close(); }
+	});
+}
+
+test("a one-cycle maximum still implements and reviews before escalating", async () => {
+	const f = fixture({ "max-review-cycles": 1 });
+	try {
+		f.verdicts.push("request_changes");
+		await f.orchestrator().execute(f.ctx);
+		assert.deepEqual(f.calls.map((call) => call.roleName), ["workflow-implementer", "workflow-reviewer"]);
+		assert.equal(f.state.todos[0].automaticReviewCycles, 1);
+		assert.equal(f.state.todos[0].status, "awaiting-user");
+	} finally { f.close(); }
+});
+
+test("a larger maximum allows revisions up to the configured limit", async () => {
+	const f = fixture({ "max-review-cycles": 3 });
+	try {
+		f.verdicts.push("request_changes", "request_changes", "request_changes");
+		await f.orchestrator().execute(f.ctx);
+		assert.equal(f.calls.length, 6);
+		assert.equal(f.state.todos[0].revisions.length, 3);
+		assert.equal(f.state.todos[0].automaticReviewCycles, 3);
+		assert.equal(f.state.todos[0].status, "awaiting-user");
+	} finally { f.close(); }
+});
+
+for (const verdict of ["approve", "escalate"]) {
+	test(`reviewer ${verdict} stops cycling before the configured maximum`, async () => {
+		const f = fixture({ "max-review-cycles": 3 });
+		try {
+			f.verdicts.push(verdict);
+			await f.orchestrator().execute(f.ctx);
+			assert.equal(f.calls.length, 2);
+			assert.equal(f.state.todos[0].automaticReviewCycles, 1);
+			assert.equal(f.state.todos[0].status, "awaiting-user");
+		} finally { f.close(); }
+	});
+}
+
+test("human feedback starts a fresh allowance using reloaded configuration", async () => {
+	const f = fixture({ "max-review-cycles": 1 });
+	try {
+		f.verdicts.push("request_changes");
+		const run = f.orchestrator();
+		await run.execute(f.ctx);
+		await writeWorkflowModelConfig({
+			implementer: { model: "test/impl" },
+			reviewer: { model: "test/review" },
+			"max-review-cycles": 3,
+		}, f.root);
+		f.verdicts.push("request_changes", "request_changes", "request_changes");
+		await run.reviseFromHuman(f.ctx, f.state.todos[0], "Fix the findings.");
+		assert.equal(f.calls.length, 8);
+		assert.equal(f.state.todos[0].revisions.length, 4);
+		assert.equal(f.state.todos[0].automaticReviewCycles, 3);
+		assert.equal(f.state.todos[0].status, "awaiting-user");
+	} finally { f.close(); }
+});
+
+test("resumed review reloads the maximum while retaining the persisted cycle count", async () => {
+	const f = fixture({ "max-review-cycles": 3 });
+	try {
+		let reviews = 0;
+		f.controls.beforeRun = async (options) => {
+			if (options.roleName === "workflow-reviewer" && ++reviews === 2) throw new Error("review disconnected");
+		};
+		f.verdicts.push("request_changes");
+		await f.orchestrator().execute(f.ctx);
+		assert.equal(f.state.todos[0].status, "failed");
+		assert.equal(f.state.todos[0].automaticReviewCycles, 2);
+		const restored = restoreState(cloneState(f.state))!;
+		await writeWorkflowModelConfig({
+			implementer: { model: "test/impl" },
+			reviewer: { model: "test/review" },
+			"max-review-cycles": 2,
+		}, f.root);
+		f.controls.beforeRun = async () => {};
+		f.verdicts.push("request_changes");
+		await f.orchestrator(restored).execute(f.ctx);
+		assert.equal(f.calls.length, 5);
+		assert.equal(f.calls[4].roleName, "workflow-reviewer");
+		assert.equal(restored.todos[0].automaticReviewCycles, 2);
+		assert.equal(restored.todos[0].status, "awaiting-user");
+	} finally { f.close(); }
+});
+
+test("resumed implementers and reviewers use updated discovery settings", async () => {
+	const f = fixture();
+	try {
+		f.controls.beforeRun = async () => { throw new Error("implementer disconnected"); };
+		await f.orchestrator().execute(f.ctx);
+		const restored = restoreState(cloneState(f.state))!;
+		await writeWorkflowModelConfig({
+			implementer: { model: "test/impl", "context-file-discovery": false },
+			reviewer: { model: "test/review", "context-file-discovery": true },
+		}, f.root);
+		f.controls.beforeRun = async () => {};
+		await f.orchestrator(restored).execute(f.ctx);
+		assert.deepEqual(f.calls.map((call) => call.contextFileDiscovery), [undefined, false, true]);
+		assert.equal(restored.todos[0].automaticReviewCycles, 1);
+		assert.equal(restored.todos[0].status, "awaiting-user");
+	} finally { f.close(); }
+});
 
 test("automatic and human revisions reuse each role's distinct conversation", async () => {
 	const f = fixture();

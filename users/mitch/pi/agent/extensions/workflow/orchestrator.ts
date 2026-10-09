@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { CompleteWorkflowModelConfig } from "./config.ts";
+import { DEFAULT_MAX_REVIEW_CYCLES, type CompleteWorkflowModelConfig } from "./config.ts";
 import type { WorkflowContent } from "./content.ts";
 import { implementerInvocation, reviewerInvocation, validateImplementation, validateReview } from "./context.ts";
 import { diffForHumanCheckpoint, diffTrees, snapshotWorktree } from "./git.ts";
@@ -17,8 +17,8 @@ export interface OrchestratorHooks {
 	runAgent?: typeof runAgent;
 }
 
-export function shouldAutomaticallyRevise(todo: WorkflowTodo): boolean {
-	return latestRevision(todo)?.review?.verdict === "request_changes" && todo.automaticReviewCycles < 2;
+export function shouldAutomaticallyRevise(todo: WorkflowTodo, maxReviewCycles = DEFAULT_MAX_REVIEW_CYCLES): boolean {
+	return latestRevision(todo)?.review?.verdict === "request_changes" && todo.automaticReviewCycles < maxReviewCycles;
 }
 
 export class WorkflowOrchestrator {
@@ -219,6 +219,7 @@ export class WorkflowOrchestrator {
 							...implementerInvocation(this.state, todo, content, { continuing: prepared.hasHistory, interrupted }),
 							tools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
 							model: models.implementer.model, thinkingLevel: models.implementer.thinkingLevel,
+							contextFileDiscovery: models.implementer["context-file-discovery"],
 							signal, onProcess: lease.setChildPid,
 						});
 						signal.throwIfAborted();
@@ -245,13 +246,14 @@ export class WorkflowOrchestrator {
 						...reviewerInvocation(this.state, todo, content, { continuing: prepared.hasHistory, interrupted }),
 						tools: ["read", "grep", "find", "ls"],
 						model: models.reviewer.model, thinkingLevel: models.reviewer.thinkingLevel,
+						contextFileDiscovery: models.reviewer["context-file-discovery"],
 						signal, onProcess: lease.setChildPid,
 					});
 					signal.throwIfAborted();
 					record.review = { ...validateReview(extractProtocolJson<ReviewResult>(run.output, "workflow-review")), model: models.reviewer.model, thinkingLevel: models.reviewer.thinkingLevel ?? "off" };
 					this.changed(ctx);
 				}
-				if (shouldAutomaticallyRevise(todo)) {
+				if (shouldAutomaticallyRevise(todo, models["max-review-cycles"])) {
 					// The completed checkpoint remains durable until the next revision is allocated.
 					todo.checkpoint = undefined;
 					continue;

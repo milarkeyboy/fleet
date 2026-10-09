@@ -1,9 +1,10 @@
+// Workflow configuration validation, persistence, and model preflight.
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { formatWorkflowModels, isProviderModel, loadWorkflowModelConfig, parseWorkflowModelConfig, requireExecutableWorkflowModels, setWorkflowRoleModel, workflowConfigPath } from "../config.ts";
+import { formatWorkflowModels, isProviderModel, loadWorkflowModelConfig, parseWorkflowModelConfig, requireExecutableWorkflowModels, setWorkflowRoleModel, workflowConfigPath, writeWorkflowModelConfig } from "../config.ts";
 
 test("sets role models in the global workflow config without discarding the other role", async () => {
 	const temp = await mkdtemp(path.join(os.tmpdir(), "workflow-config-test-"));
@@ -39,6 +40,62 @@ test("validates workflow role model configuration", () => {
 	assert.equal(isProviderModel("missing-provider"), false);
 	assert.throws(() => parseWorkflowModelConfig({ implementer: { model: "openai/gpt", thinkingLevel: "extreme" } }), /thinking level/i);
 	assert.throws(() => parseWorkflowModelConfig({ reviewer: { model: "missing-provider" } }), /provider\/model/);
+});
+
+test("parses independent role discovery settings and the cycle maximum", () => {
+	const config = {
+		implementer: { model: "test/impl", "context-file-discovery": false },
+		reviewer: { model: "test/review", "context-file-discovery": true },
+		"max-review-cycles": 3,
+	};
+	assert.deepEqual(parseWorkflowModelConfig(config), config);
+	assert.deepEqual(parseWorkflowModelConfig({ "max-review-cycles": 1 }), { "max-review-cycles": 1 });
+});
+
+test("rejects non-boolean discovery settings for either role", () => {
+	for (const role of ["implementer", "reviewer"]) {
+		for (const value of [null, "false", 0, {}, []]) {
+			assert.throws(() => parseWorkflowModelConfig({ [role]: { model: "test/model", "context-file-discovery": value } }), /context-file-discovery.*boolean/);
+		}
+	}
+});
+
+test("rejects cycle maxima that cannot represent a positive count", () => {
+	for (const value of [0, -1, 1.5, "3", null, true, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1]) {
+		assert.throws(() => parseWorkflowModelConfig({ "max-review-cycles": value }), /max-review-cycles.*positive safe integer/);
+	}
+});
+
+test("model updates preserve discovery settings and the cycle maximum", async () => {
+	const agentDir = await mkdtemp(path.join(os.tmpdir(), "workflow-config-test-"));
+	try {
+		await writeWorkflowModelConfig({
+			implementer: { model: "test/impl", thinkingLevel: "high", "context-file-discovery": false },
+			reviewer: { model: "test/review", "context-file-discovery": true },
+			"max-review-cycles": 3,
+		}, agentDir);
+		await setWorkflowRoleModel("implementer", "test/new-impl", undefined, agentDir);
+		await setWorkflowRoleModel("reviewer", "test/new-review", "low", agentDir);
+		assert.deepEqual(await loadWorkflowModelConfig(agentDir), {
+			implementer: { model: "test/new-impl", "context-file-discovery": false },
+			reviewer: { model: "test/new-review", thinkingLevel: "low", "context-file-discovery": true },
+			"max-review-cycles": 3,
+		});
+	} finally { await rm(agentDir, { recursive: true, force: true }); }
+});
+
+test("executable configuration retains context settings and the cycle maximum", async () => {
+	const config = {
+		implementer: { model: "test/impl", "context-file-discovery": false },
+		reviewer: { model: "test/review", "context-file-discovery": true },
+		"max-review-cycles": 3,
+	};
+	const registry = {
+		find(provider: string, id: string) { return { provider, id }; },
+		hasConfiguredAuth() { return true; },
+		async getApiKeyAndHeaders() { return { ok: true as const, apiKey: "secret" }; },
+	};
+	assert.deepEqual(await requireExecutableWorkflowModels(config, registry as any), config);
 });
 
 test("requires both role models before resolving either role", async () => {

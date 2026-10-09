@@ -9,13 +9,20 @@ export type WorkflowRole = typeof WORKFLOW_ROLES[number];
 export const WORKFLOW_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type WorkflowThinkingLevel = typeof WORKFLOW_THINKING_LEVELS[number];
 
+export const DEFAULT_MAX_REVIEW_CYCLES = 2;
+
 export interface WorkflowRoleModelConfig {
 	model: string;
 	thinkingLevel?: WorkflowThinkingLevel;
+	"context-file-discovery"?: boolean;
 }
 
-export type WorkflowModelConfig = Partial<Record<WorkflowRole, WorkflowRoleModelConfig>>;
-export type CompleteWorkflowModelConfig = Record<WorkflowRole, WorkflowRoleModelConfig>;
+interface WorkflowSettings {
+	"max-review-cycles"?: number;
+}
+
+export type WorkflowModelConfig = Partial<Record<WorkflowRole, WorkflowRoleModelConfig>> & WorkflowSettings;
+export type CompleteWorkflowModelConfig = Record<WorkflowRole, WorkflowRoleModelConfig> & WorkflowSettings;
 
 type WorkflowModelRegistry = Pick<ModelRegistry, "find" | "hasConfiguredAuth" | "getApiKeyAndHeaders">;
 
@@ -45,16 +52,21 @@ export function isProviderModel(value: string): boolean {
 function parseRoleConfig(value: unknown, role: WorkflowRole): WorkflowRoleModelConfig | undefined {
 	if (value === undefined) return undefined;
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Workflow model configuration for ${role} must be an object.`);
-	const candidate = value as { model?: unknown; thinkingLevel?: unknown };
+	const candidate = value as { model?: unknown; thinkingLevel?: unknown; "context-file-discovery"?: unknown };
 	if (typeof candidate.model !== "string" || !isProviderModel(candidate.model)) {
 		throw new Error(`Workflow model configuration for ${role} must use a provider/model identifier.`);
 	}
 	if (candidate.thinkingLevel !== undefined && (typeof candidate.thinkingLevel !== "string" || !isWorkflowThinkingLevel(candidate.thinkingLevel))) {
 		throw new Error(`Workflow thinking level for ${role} must be one of: ${WORKFLOW_THINKING_LEVELS.join(", ")}.`);
 	}
+	const discovery = candidate["context-file-discovery"];
+	if (discovery !== undefined && typeof discovery !== "boolean") {
+		throw new Error(`Workflow context-file-discovery for ${role} must be a boolean.`);
+	}
 	return {
 		model: candidate.model,
 		...(candidate.thinkingLevel !== undefined ? { thinkingLevel: candidate.thinkingLevel as WorkflowThinkingLevel } : {}),
+		...(discovery !== undefined ? { "context-file-discovery": discovery } : {}),
 	};
 }
 
@@ -62,6 +74,13 @@ export function parseWorkflowModelConfig(value: unknown): WorkflowModelConfig {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Workflow model configuration must be a JSON object.");
 	const candidate = value as Record<string, unknown>;
 	const config: WorkflowModelConfig = {};
+	const maxCycles = candidate["max-review-cycles"];
+	if (maxCycles !== undefined) {
+		if (typeof maxCycles !== "number" || !Number.isSafeInteger(maxCycles) || maxCycles < 1) {
+			throw new Error("Workflow max-review-cycles must be a positive safe integer.");
+		}
+		config["max-review-cycles"] = maxCycles;
+	}
 	for (const role of WORKFLOW_ROLES) {
 		const roleConfig = parseRoleConfig(candidate[role], role);
 		if (roleConfig) config[role] = roleConfig;
@@ -146,7 +165,8 @@ export async function setWorkflowRoleModel(
 	agentDir: string,
 ): Promise<WorkflowModelConfig> {
 	const config = await loadWorkflowModelConfig(agentDir);
-	config[role] = { model, ...(thinkingLevel ? { thinkingLevel } : {}) };
+	config[role] = { ...config[role], model, thinkingLevel };
+	if (thinkingLevel === undefined) delete config[role].thinkingLevel;
 	await writeWorkflowModelConfig(config, agentDir);
 	return config;
 }
