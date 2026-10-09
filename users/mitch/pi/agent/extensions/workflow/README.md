@@ -24,7 +24,7 @@ explicitly marks it completed manually by forcing execution from a later todo.
 
 | Command | Purpose |
 |---|---|
-| `/workflow` or `/workflow on` | Enable conversational, read-only workflow planning |
+| `/workflow` or `/workflow on` | Enable conversational workflow planning with local write guards |
 | `/workflow off` | Leave planning without executing |
 | `/workflow execute [step]` | Execute the accepted plan, or cancel the active run and continue from a later pending todo |
 | `/workflow status` / `todos` | Show todo state and optional skill assignments |
@@ -115,8 +115,22 @@ plan for fresh conversations if previously loaded context must be removed.
 Planning uses the top-level session's selected model, conversation, context
 files, and normal system prompt. While planning is active, the extension appends
 the bundled `content/planner.md`, typed-submission instructions, and the names
-and descriptions of currently discovered skills. Planning remains read-only,
-with the shared `questionnaire` tool available for important decisions.
+and descriptions of currently discovered skills. Planning blocks built-in `edit`
+and `write` calls and restricts Bash to read-only commands, including calls made
+through `codemode`. The shared `questionnaire` tool remains available for important
+decisions.
+
+Planning preserves active MCP tools, resource tools, `codemode` and `tool_search`,
+so the planner can read Jira issues and use other configured integrations.
+The `download-file` extension supplies `download_file({ url })` during planning.
+Use it with a signed Jira attachment URL, then pass its returned temporary path to
+`read`. Downloads use a managed temporary directory, so reference images can be
+fetched while the existing Bash restrictions remain in place.
+
+MCP operations, including external writes, remain governed by the server's
+permissions and any separate permission extensions. Workflow's local write guards
+apply to built-in tools; MCP servers retain their configured capabilities,
+including local filesystem access where provided.
 
 The planner submits its final plan through `workflow_submit_plan` as native todo
 objects containing a title, an instructions array, and an optional primary

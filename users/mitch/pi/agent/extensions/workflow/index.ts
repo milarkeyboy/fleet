@@ -15,7 +15,8 @@ import { clearWorkflowUi, formatWorkflowDiff, todoSummary, updateWorkflowUi, wor
 const QUESTIONNAIRE_TOOL = "questionnaire";
 const SUBMIT_PLAN_TOOL = "workflow_submit_plan";
 const DIFF_MESSAGE_TYPE = "workflow-diff";
-const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls", QUESTIONNAIRE_TOOL, SUBMIT_PLAN_TOOL];
+const LOCAL_PLANNING_TOOLS = ["read", "bash", "grep", "find", "ls", "download_file", QUESTIONNAIRE_TOOL, SUBMIT_PLAN_TOOL];
+const MCP_ACCESS_TOOLS = new Set(["codemode", "tool_search", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]);
 const DISABLED_PLANNING_TOOLS = new Set(["write", "edit"]);
 
 function helpText(): string {
@@ -87,15 +88,19 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 	}
 
 	function enablePlanning(ctx: ExtensionContext, notify = true): void {
-		if (!state.toolsBeforePlanning) state.toolsBeforePlanning = pi.getActiveTools();
-		pi.setActiveTools([...READ_ONLY_TOOLS]);
+		const activeTools = pi.getActiveTools();
+		state.toolsBeforePlanning ??= activeTools;
+		// Preserve MCP access from both the live tool set and a resumed planning session.
+		// Deferred tools keep their configured exposure and are reached through their gateways.
+		const mcpTools = [...activeTools, ...state.toolsBeforePlanning].filter((name) => name.startsWith("mcp__") || MCP_ACCESS_TOOLS.has(name));
+		pi.setActiveTools([...new Set([...LOCAL_PLANNING_TOOLS, ...mcpTools])]);
 		state.planning = true;
 		state.executing = false;
 		state.paused = false;
 		getContent(ctx);
 		persist();
 		update(ctx);
-		if (notify) ctx.ui.notify("Workflow planning enabled. File modifications are disabled.", "info");
+		if (notify) ctx.ui.notify("Workflow planning enabled. Built-in file modifications are disabled; MCP remains available.", "info");
 	}
 
 	function disablePlanning(ctx: ExtensionContext, notify = true): void {
@@ -368,7 +373,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 
 	pi.on("tool_call", async (event) => {
 		if (!state.planning) return;
-		if (DISABLED_PLANNING_TOOLS.has(event.toolName)) return { block: true, reason: "Workflow planning is read-only. Use /workflow execute after accepting the plan." };
+		if (DISABLED_PLANNING_TOOLS.has(event.toolName)) return { block: true, reason: "Workflow planning blocks built-in file modifications. Use /workflow execute after accepting the plan." };
 		if (event.toolName === "bash" && !isReadOnlyPlanningCommand(String((event.input as any).command ?? ""))) {
 			return { block: true, reason: "Workflow planning blocked a non-read-only shell command." };
 		}

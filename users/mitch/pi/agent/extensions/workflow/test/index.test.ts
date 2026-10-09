@@ -28,7 +28,7 @@ const exclusive = (WorkflowOrchestrator.prototype as any).runExclusive;
 	return exclusive.call(this, ctx, ...args);
 };
 
-async function fixture(initial?: WorkflowState) {
+async function fixture(initial?: WorkflowState, initialTools = ["read", "bash", "edit", "write"]) {
 	const root = mkdtempSync(path.join(os.tmpdir(), "workflow-extension-"));
 	(globalThis as any).workflowTestAgentDir = root;
 	const state = initial ?? createWorkflowState();
@@ -37,7 +37,7 @@ async function fixture(initial?: WorkflowState) {
 	let branch = entries;
 	const handlers: Record<string, any> = {}, commands: Record<string, any> = {}, tools: Record<string, any> = {};
 	const notices: string[] = [], calls: any[] = [];
-	let activeTools = ["read", "bash", "edit", "write"];
+	let activeTools = [...initialTools];
 	const pi = {
 		registerMessageRenderer() {}, registerFlag() {}, getFlag: () => false,
 		registerCommand: (name: string, command: any) => commands[name] = command.handler,
@@ -67,10 +67,94 @@ async function fixture(initial?: WorkflowState) {
 	extension(pi as any);
 	await handlers.session_start({}, ctx);
 	return { root, ctx, handlers, commands, tools, entries, notices, calls, control,
+		getActiveTools: pi.getActiveTools, setActiveTools: pi.setActiveTools,
 		command: (args: string) => commands.workflow(args, ctx), state: () => entries.at(-1).data as WorkflowState,
 		restart: async () => { extension(pi as any); await handlers.session_start({}, ctx); },
 		branch: (value: any[]) => { branch = value; }, close: () => rmSync(root, { recursive: true, force: true }) };
 }
+
+test("planning retains active MCP gateways, direct tools and resource tools", async () => {
+	const f = await fixture(undefined, ["read", "edit", "write", "codemode", "tool_search", "mcp__jira__get_issue", "mcp__jira__update_issue", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]);
+	try {
+		await f.command("on");
+		assert.deepEqual(f.getActiveTools(), [
+			"read", "bash", "grep", "find", "ls", "download_file", "questionnaire", "workflow_submit_plan",
+			"codemode", "tool_search", "mcp__jira__get_issue", "mcp__jira__update_issue",
+			"list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource",
+		]);
+	} finally { f.close(); }
+});
+
+test("planning makes temporary downloads available without enabling local write tools", async () => {
+	const f = await fixture();
+	try {
+		await f.command("on");
+		assert.equal(f.getActiveTools().includes("download_file"), true);
+		assert.equal(await f.handlers.tool_call({ toolName: "download_file", input: { url: "https://example.com/image" } }, f.ctx), undefined);
+		assert.equal(f.getActiveTools().includes("edit"), false);
+		assert.equal(f.getActiveTools().includes("write"), false);
+	} finally { f.close(); }
+});
+
+test("resumed planning recovers MCP access from the saved pre-planning tool set", async () => {
+	const state = createWorkflowState();
+	state.planning = true;
+	state.toolsBeforePlanning = ["read", "edit", "codemode", "mcp__jira__get_issue"];
+	const f = await fixture(state, ["read", "bash"]);
+	try {
+		assert.equal(f.getActiveTools().includes("codemode"), true);
+		assert.equal(f.getActiveTools().includes("mcp__jira__get_issue"), true);
+		assert.equal(f.getActiveTools().includes("edit"), false);
+	} finally { f.close(); }
+});
+
+test("re-entering planning retains MCP tools discovered after planning began", async () => {
+	const f = await fixture(undefined, ["read", "codemode"]);
+	try {
+		await f.command("on");
+		f.setActiveTools([...f.getActiveTools(), "mcp__jira__get_issue"]);
+		await f.command("on");
+		assert.equal(f.getActiveTools().includes("mcp__jira__get_issue"), true);
+		assert.equal(f.getActiveTools().filter((name) => name === "codemode").length, 1);
+	} finally { f.close(); }
+});
+
+for (const command of ["off", "clear"]) {
+	test(`${command} restores the pre-planning tools including MCP access`, async () => {
+		const f = await fixture(undefined, ["read", "bash", "edit", "write", "codemode", "mcp__jira__get_issue"]);
+		try {
+			await f.command("on");
+			await f.command(command);
+			assert.deepEqual(f.getActiveTools(), ["read", "bash", "edit", "write", "codemode", "mcp__jira__get_issue"]);
+		} finally { f.close(); }
+	});
+}
+
+test("planning permits MCP reads and writes both directly and through codemode", async () => {
+	const f = await fixture(undefined, ["read", "codemode"]);
+	try {
+		await f.command("on");
+		for (const toolName of ["codemode", "tool_search", "mcp__jira__get_issue", "mcp__jira__update_issue"]) {
+			for (const parentToolCallId of [undefined, "codemode-call"]) {
+				assert.equal(await f.handlers.tool_call({ toolName, input: {}, parentToolCallId }, f.ctx), undefined);
+			}
+		}
+	} finally { f.close(); }
+});
+
+test("planning still blocks local writes and unsafe Bash calls made through codemode", async () => {
+	const f = await fixture(undefined, ["read", "bash", "edit", "write", "codemode"]);
+	try {
+		await f.command("on");
+		for (const parentToolCallId of [undefined, "codemode-call"]) {
+			for (const toolName of ["edit", "write"]) {
+				assert.equal((await f.handlers.tool_call({ toolName, input: {}, parentToolCallId }, f.ctx))?.block, true);
+			}
+			assert.equal((await f.handlers.tool_call({ toolName: "bash", input: { command: "touch changed.txt" }, parentToolCallId }, f.ctx))?.block, true);
+			assert.equal(await f.handlers.tool_call({ toolName: "bash", input: { command: "git status" }, parentToolCallId }, f.ctx), undefined);
+		}
+	} finally { f.close(); }
+});
 
 for (const command of ["abort", "clear"] as const) {
 	test(`${command} stops workers before deleting their transcripts`, async () => {
