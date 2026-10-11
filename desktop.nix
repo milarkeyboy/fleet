@@ -17,6 +17,11 @@
 
   networking.hostName = "desktop";
 
+  # RX 9070: use the kernel's amdgpu driver with Mesa's RadeonSI/RADV drivers.
+  # modules/gaming.nix supplies Mesa for both native and 32-bit games.
+  services.xserver.videoDrivers = [ "amdgpu" ];
+  hardware.amdgpu.initrd.enable = true;
+
   # This host has one 4K display. Use its connector name if more are added.
   environment.etc."xdg/hypr/conf.d/outputs.lua".text = ''
     hl.monitor({ output = "", mode = "3840x2160@60", position = "auto", scale = 1.5 })
@@ -26,21 +31,5 @@
   console = {
     packages = [ pkgs.terminus_font ];
     font = "ter-v32n";
-  };
-
-  # Enable NVIDIA driver.
-  # Note that the 'xserver' part is just the name of the settings to
-  # turn on the NVIDIA driver; it's required for both X11 and Wayland.
-  services.xserver.videoDrivers = [ "nvidia" ];
-  hardware.nvidia = {
-    # The GeForce GTX 1060 uses the driver branch supporting Pascal GPUs:
-    # https://nvidia.custhelp.com/app/answers/detail/a_id/3142/~/support-timeframes-for-unix-legacy-gpu-releases
-    branch = "legacy_580";
-    # Proprietary.
-    open = false;
-
-    # Wayland requires modesetting:
-    # - https://wiki.nixos.org/wiki/NVIDIA#Wayland
-    modesetting.enable = true;
   };
 }
