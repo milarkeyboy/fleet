@@ -4,14 +4,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { implementerInvocation, reviewerInvocation } from "../context.ts";
+import { implementerInvocation, codeReviewerInvocation, designReviewerInvocation } from "../context.ts";
 import { createWorkflowTodos } from "../planner.ts";
 import { WorkflowSessionStore } from "../sessions.ts";
 import { createWorkflowState } from "../state.ts";
 import { installedPi } from "./pi.ts";
 
 const pi = installedPi();
-for (const [role, invoke] of [["implementer", implementerInvocation], ["reviewer", reviewerInvocation]] as const) {
+for (const [role, invoke] of [["implementer", implementerInvocation], ["code-reviewer", codeReviewerInvocation], ["design-reviewer", designReviewerInvocation]] as const) {
 	test(`${role} requirements survive Pi compaction and reopening the session`, { skip: !pi }, async () => {
 		const { SessionManager } = await import(pi!.api);
 		const root = mkdtempSync(path.join(os.tmpdir(), "workflow-pi-session-"));
@@ -20,13 +20,16 @@ for (const [role, invoke] of [["implementer", implementerInvocation], ["reviewer
 			state.ownerSessionId = "parent";
 			state.todos = createWorkflowTodos([{ title: "Fix errors", instructions: ["Preserve the public API."] }]);
 			const todo = state.todos[0];
+			todo.designs.push({ planRevision: 1, baselineTree: "before", resultTree: "after", diffPreview: "+ void start();", changedFiles: ["api.h"], reviews: [], accepted: true });
+			todo.designAccepted = 0;
 			todo.revisions = [
 				{ humanFeedback: "Remove the fallback.", changedFiles: [] },
 				{ humanFeedback: "Change the label to Retry.", changedFiles: [], implementation: { status: "completed", summary: "done", filesChanged: [], tests: [] } },
 			];
 			const content = { planner: "", skills: {}, diagnostics: [], roles: {
 				implementer: { name: "implementer" as const, body: "Implement", filePath: "/impl.md", source: "bundled" as const },
-				reviewer: { name: "reviewer" as const, body: "Review", filePath: "/review.md", source: "bundled" as const },
+				"design-reviewer": { name: "design-reviewer" as const, body: "Design review.", filePath: "/design.md", source: "bundled" as const },
+				"code-reviewer": { name: "code-reviewer" as const, body: "Review", filePath: "/review.md", source: "bundled" as const },
 			} };
 			const snapshot = invoke(state, todo, content).systemPrompt;
 			const store = new WorkflowSessionStore(root, "parent", root);
@@ -42,6 +45,7 @@ for (const [role, invoke] of [["implementer", implementerInvocation], ["reviewer
 			const messages = reopened.buildSessionContext().messages;
 			const system = messages.find((message: any) => message.role === "system");
 			assert.match(system.content, /Preserve the public API\./);
+			assert.match(system.content, /\+ void start\(\);/);
 			assert.match(system.content, /Remove the fallback\./);
 			assert.match(system.content, /Change the label to Retry\./);
 			assert.doesNotMatch(JSON.stringify(messages), /Old conversation-only detail/);

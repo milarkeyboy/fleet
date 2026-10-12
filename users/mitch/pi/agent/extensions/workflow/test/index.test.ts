@@ -1,5 +1,6 @@
 // Extension command and session-event integration, with Pi UI and model calls replaced by deterministic peers.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { registerHooks } from "node:module";
 import os from "node:os";
@@ -23,14 +24,15 @@ loader.deregister();
 // Keep command handling and orchestration real; replace only the external model boundary.
 const exclusive = (WorkflowOrchestrator.prototype as any).runExclusive;
 (WorkflowOrchestrator.prototype as any).runExclusive = function(ctx: any, ...args: any[]) {
-	this.hooks.models = async () => ({ implementer: { model: "test/impl" }, reviewer: { model: "test/review" } });
+	this.hooks.models = async () => ({ "design-reviewer": { model: "test/design" }, implementer: { model: "test/impl" }, "code-reviewer": { model: "test/review" } });
 	this.hooks.runAgent = ctx.runAgent;
 	return exclusive.call(this, ctx, ...args);
 };
 
 async function fixture(initial?: WorkflowState, initialTools = ["read", "bash", "edit", "write"]) {
 	const root = mkdtempSync(path.join(os.tmpdir(), "workflow-extension-"));
-	(globalThis as any).workflowTestAgentDir = root;
+	execFileSync("git", ["init", "-q", root]);
+	(globalThis as any).workflowTestAgentDir = path.join(root, ".git", "agent");
 	const state = initial ?? createWorkflowState();
 	if (!initial) state.todos = createWorkflowTodos([{ title: "First", instructions: ["Implement first."] }, { title: "Second", instructions: ["Implement second."] }]);
 	const entries: any[] = [{ id: "entry-1", type: "custom", customType: WORKFLOW_ENTRY_TYPE, data: cloneState(state) }];
@@ -156,9 +158,17 @@ test("planning still blocks local writes and unsafe Bash calls made through code
 	} finally { f.close(); }
 });
 
+// Execution integration starts at a human design-acceptance checkpoint.
+async function codeFixture() {
+	const f = await fixture();
+	await f.command("execute");
+	await f.command("design-review");
+	return f;
+}
+
 for (const command of ["abort", "clear"] as const) {
 	test(`${command} stops workers before deleting their transcripts`, async () => {
-		const f = await fixture();
+		const f = await codeFixture();
 		try {
 			let entered!: () => void;
 			const active = new Promise<void>((resolve) => { entered = resolve; });
@@ -166,7 +176,7 @@ for (const command of ["abort", "clear"] as const) {
 				entered();
 				await new Promise<void>((_resolve, reject) => options.signal.addEventListener("abort", () => reject(new Error("stopped")), { once: true }));
 			};
-			const execution = f.command("execute");
+			const execution = f.command("design-approve");
 			await active;
 			await f.command(command);
 			await execution;
@@ -180,7 +190,7 @@ for (const command of ["abort", "clear"] as const) {
 }
 
 test("shutdown stops workers but retains unfinished conversations", async () => {
-	const f = await fixture();
+	const f = await codeFixture();
 	try {
 		let entered!: () => void;
 		const active = new Promise<void>((resolve) => { entered = resolve; });
@@ -188,7 +198,7 @@ test("shutdown stops workers but retains unfinished conversations", async () => 
 			entered();
 			await new Promise<void>((_resolve, reject) => options.signal.addEventListener("abort", () => reject(new Error("stopped")), { once: true }));
 		};
-		const execution = f.command("execute");
+		const execution = f.command("design-approve");
 		await active;
 		await f.handlers.session_shutdown({}, f.ctx);
 		await execution;
@@ -199,7 +209,7 @@ test("shutdown stops workers but retains unfinished conversations", async () => 
 });
 
 test("restart after shutdown waits for an explicit command and reuses the interrupted session", async () => {
-	const f = await fixture();
+	const f = await codeFixture();
 	try {
 		let entered!: () => void;
 		const active = new Promise<void>((resolve) => { entered = resolve; });
@@ -207,7 +217,7 @@ test("restart after shutdown waits for an explicit command and reuses the interr
 			entered();
 			await new Promise<void>((_resolve, reject) => options.signal.addEventListener("abort", () => reject(new Error("stopped")), { once: true }));
 		};
-		const execution = f.command("execute");
+		const execution = f.command("design-approve");
 		await active;
 		await f.handlers.session_shutdown({}, f.ctx);
 		await execution;
@@ -223,9 +233,9 @@ test("restart after shutdown waits for an explicit command and reuses the interr
 });
 
 test("restart finishes a persisted discard without resuming any worker", async () => {
-	const f = await fixture();
+	const f = await codeFixture();
 	try {
-		await f.command("execute");
+		await f.command("design-approve");
 		const file = f.calls[0].sessionFile;
 		f.state().discarding = true;
 		await f.restart();
@@ -236,9 +246,9 @@ test("restart finishes a persisted discard without resuming any worker", async (
 });
 
 test("restart completes transcript cleanup after a persisted approval", async () => {
-	const f = await fixture();
+	const f = await codeFixture();
 	try {
-		await f.command("execute");
+		await f.command("design-approve");
 		const file = f.calls[0].sessionFile;
 		f.state().todos[0].status = "approved";
 		await f.restart();
@@ -250,23 +260,23 @@ test("restart completes transcript cleanup after a persisted approval", async ()
 });
 
 test("approval deletes the completed todo's sessions before starting the next", async () => {
-	const f = await fixture();
+	const f = await codeFixture();
 	try {
-		await f.command("execute");
+		await f.command("design-approve");
 		const files = f.calls.map((call) => call.sessionFile);
 		await f.command("approve");
 		assert.equal(f.state().todos[0].status, "approved");
-		assert.equal(f.state().todos[1].status, "awaiting-user");
+		assert.equal(f.state().todos[1].status, "design-editing");
 		assert.equal(existsSync(files[0]), false);
 		assert.equal(existsSync(files[1]), false);
-		assert.equal(existsSync(f.calls[2].sessionFile), true);
+		assert.equal(f.calls.length, 2);
 	} finally { f.close(); }
 });
 
 test("feedback from a cleared todo cannot restart work through a stale editor", async () => {
-	const f = await fixture();
+	const f = await codeFixture();
 	try {
-		await f.command("execute");
+		await f.command("design-approve");
 		f.ctx.hasUI = true;
 		let entered!: () => void;
 		const active = new Promise<void>((resolve) => { entered = resolve; });
@@ -303,9 +313,9 @@ test("a stale plan dialog cannot replace a newly cleared workflow", async () => 
 });
 
 test("navigating into a divergent history requires replanning without deleting its sessions", async () => {
-	const f = await fixture();
+	const f = await codeFixture();
 	try {
-		await f.command("execute");
+		await f.command("design-approve");
 		const file = f.calls[0].sessionFile;
 		await f.handlers.session_before_tree({}, f.ctx);
 		f.branch([f.entries[0]]);
@@ -319,9 +329,9 @@ test("navigating into a divergent history requires replanning without deleting i
 });
 
 test("forked parents cannot resume or clear the original role conversations", async () => {
-	const f = await fixture();
+	const f = await codeFixture();
 	try {
-		await f.command("execute");
+		await f.command("design-approve");
 		const file = f.calls[0].sessionFile;
 		f.ctx.sessionManager.getSessionId = () => "fork";
 		await f.handlers.session_start({}, f.ctx);
@@ -333,21 +343,21 @@ test("forked parents cannot resume or clear the original role conversations", as
 });
 
 test("forced manual completion deletes skipped transcripts", async () => {
-	const f = await fixture();
+	const f = await codeFixture();
 	try {
-		await f.command("execute");
+		await f.command("design-approve");
 		const file = f.calls[0].sessionFile;
 		await f.command("execute 2");
 		assert.equal(f.state().todos[0].status, "completed-manually");
-		assert.equal(f.state().todos[1].status, "awaiting-user");
+		assert.equal(f.state().todos[1].status, "design-editing");
 		assert.equal(existsSync(file), false);
 	} finally { f.close(); }
 });
 
 test("clear can discard a workflow whose session directory has gone missing", async () => {
-	const f = await fixture();
+	const f = await codeFixture();
 	try {
-		await f.command("execute");
+		await f.command("design-approve");
 		rmSync(path.dirname(f.calls[0].sessionFile), { recursive: true });
 		await f.command("clear");
 		assert.deepEqual(f.state().todos, []);
@@ -355,16 +365,16 @@ test("clear can discard a workflow whose session directory has gone missing", as
 	} finally { f.close(); }
 });
 
-test("plan replacement removes the replaced plan's role sessions", async () => {
-	const f = await fixture();
+test("plan amendments preserve established role sessions", async () => {
+	const f = await codeFixture();
 	try {
-		await f.command("execute");
+		await f.command("design-approve");
 		const oldId = f.state().id;
-		await f.command("on");
-		await f.tools.workflow_submit_plan.execute("id", { todos: [{ title: "Replacement", instructions: ["Replace it."] }] }, undefined, undefined, f.ctx);
-		assert.notEqual(f.state().id, oldId);
-		assert.equal(f.state().todos[0].title, "Replacement");
-		assert.equal(existsSync(f.calls[0].sessionFile), false);
-		assert.equal(existsSync(f.calls[1].sessionFile), false);
+		await f.command("replan");
+		await f.tools.workflow_submit_plan.execute("id", { baseRevision: 1, affectedIds: [], todos: f.state().todos.map((todo: any) => ({ id: todo.id, title: todo.title, instructions: todo.instructions })) }, undefined, undefined, f.ctx);
+		await f.command("plan-approve");
+		assert.equal(f.state().id, oldId);
+		assert.equal(existsSync(f.calls[0].sessionFile), true);
+		assert.equal(existsSync(f.calls[1].sessionFile), true);
 	} finally { f.close(); }
 });

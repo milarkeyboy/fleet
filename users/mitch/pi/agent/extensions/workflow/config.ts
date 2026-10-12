@@ -3,8 +3,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
-export const WORKFLOW_ROLES = ["implementer", "reviewer"] as const;
-export type WorkflowRole = typeof WORKFLOW_ROLES[number];
+import { WORKFLOW_ROLES, type WorkflowRole } from "./state.ts";
+export { WORKFLOW_ROLES, type WorkflowRole } from "./state.ts";
 
 export const WORKFLOW_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type WorkflowThinkingLevel = typeof WORKFLOW_THINKING_LEVELS[number];
@@ -112,8 +112,8 @@ export async function requireExecutableWorkflowModels(
 	const missing = WORKFLOW_ROLES.filter((role) => !validated[role]);
 	if (missing.length) {
 		throw new Error(
-			`Workflow execution requires explicit model configuration for both roles. Missing: ${missing.join(", ")}. ` +
-			`Use /workflow model <implementer|reviewer> <provider/model> [thinking-level].`,
+			`Workflow execution requires explicit model configuration for all three roles. Missing: ${missing.join(", ")}. ` +
+			`Use /workflow model <implementer|design-reviewer|code-reviewer> <provider/model> [thinking-level].`,
 		);
 	}
 

@@ -4,9 +4,9 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { discoverWorkflowContent, scaffoldWorkflowRoles, type WorkflowContent } from "./content.ts";
 import { createWorkflowSubprocessModelRegistry, formatWorkflowModels, isProviderModel, isWorkflowRole, isWorkflowThinkingLevel, loadWorkflowModelConfig, requireExecutableWorkflowModels, setWorkflowRoleModel, workflowConfigPath, WORKFLOW_THINKING_LEVELS } from "./config.ts";
-import { diffForHumanCheckpoint } from "./git.ts";
+import { diffForHumanCheckpoint, diffTrees, requireWorktreeSnapshot } from "./git.ts";
 import { WorkflowOrchestrator } from "./orchestrator.ts";
-import { appendPlanningInstructions, formatWorkflowPlan, resolveSkillTag, submitWorkflowPlan } from "./planner.ts";
+import { amendmentPlanningInstructions, applyWorkflowAmendment, appendPlanningInstructions, formatWorkflowPlan, resolveSkillTag, stageWorkflowAmendment, submitWorkflowPlan } from "./planner.ts";
 import { isReadOnlyPlanningCommand } from "./safety.ts";
 import { WorkflowSessionStore } from "./sessions.ts";
 import { cloneState, createWorkflowState, currentTodo, isWorkflowComplete, restoreWorkflowBranch, markWorkflowInterrupted, WORKFLOW_ENTRY_TYPE as ENTRY_TYPE, type WorkflowState, type WorkflowTodo } from "./state.ts";
@@ -24,8 +24,14 @@ function helpText(): string {
 		"/workflow [on|off] — toggle conversational workflow planning",
 		"/workflow execute [step] — start, continue, or force execution from a later todo",
 		"/workflow status|todos — inspect workflow state",
-		"/workflow models — inspect implementer and reviewer model configuration",
-		"/workflow model <implementer|reviewer> <provider/model> [thinking-level] — configure a role model",
+		"/workflow models — inspect agent model configuration",
+		"/workflow model <implementer|design-reviewer|code-reviewer> <provider/model> [thinking-level] — configure a role model",
+		"/workflow design — enter or return to human design editing",
+		"/workflow design-review — review design changes, or confirm an empty phase",
+		"/workflow design-feedback [text] — ask the design reviewer to reconsider",
+		"/workflow design-approve — accept design and start implementation",
+		"/workflow replan — amend the accepted plan in the top-level conversation",
+		"/workflow plan-approve|plan-reject — decide a proposed amendment",
 		"/workflow review — inspect and decide the current human checkpoint",
 		"/workflow approve — approve the current todo and continue",
 		"/workflow feedback [text] — send changes through implement/review again",
@@ -53,7 +59,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 	pi.registerFlag("workflow", { description: "Start in conversational workflow planning mode", type: "boolean", default: false });
 
 	function persist(): void {
-		state.updatedAt = Date.now();
+		state.updatedAt = Math.max(Date.now(), state.updatedAt + 1);
 		pi.appendEntry(ENTRY_TYPE, cloneState(state));
 	}
 
@@ -88,6 +94,8 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 	}
 
 	function enablePlanning(ctx: ExtensionContext, notify = true): void {
+		if (orchestrator.isRunning()) throw new Error("Stop execution with /workflow replan before planning.");
+		if (!state.amending && state.todos.some((todo) => todo.status !== "pending")) throw new Error("Use /workflow replan to amend work already started.");
 		const activeTools = pi.getActiveTools();
 		state.toolsBeforePlanning ??= activeTools;
 		// Preserve MCP access from both the live tool set and a resumed planning session.
@@ -178,8 +186,10 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		const todo = currentTodo(state);
 		if (!todo || todo.status !== "awaiting-user") throw new Error("No todo is awaiting human approval.");
 		if (orchestrator.isRunning()) throw new Error("Wait for the workflow worker to finish before approving.");
+		await orchestrator.checkCodeAcceptance(ctx);
 		todo.status = "approved";
-		state.currentStep = state.todos.find((item) => item.status === "pending")?.step;
+		state.currentStep = undefined;
+		state.currentStep = currentTodo(state)?.step;
 		state.executing = false;
 		persist();
 		orchestrator.cleanupTodos(ctx, [todo]);
@@ -193,19 +203,76 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		await orchestrator.execute(ctx);
 	}
 
+	async function replan(ctx: ExtensionContext): Promise<void> {
+		if (!state.todos.length) throw new Error("Submit an initial plan first.");
+		transitioning = true;
+		try {
+			await orchestrator.stop();
+			rebuildOrchestrator();
+			orchestrator.checkIdle(ctx);
+			state.amending = true;
+			enablePlanning(ctx);
+		} finally { transitioning = false; }
+	}
+
+	async function decidePlan(ctx: ExtensionContext, accept: boolean): Promise<void> {
+		if (!state.amending) throw new Error("No plan amendment is active.");
+		if (accept) applyWorkflowAmendment(state);
+		else { state.pendingAmendment = undefined; state.amending = false; }
+		disablePlanning(ctx, false);
+		persist(); update(ctx);
+		if (accept) await orchestrator.execute(ctx);
+		else ctx.ui.notify("Accepted plan retained. Use /workflow execute to continue.", "info");
+	}
+
+	async function enterDesign(ctx: ExtensionContext): Promise<void> {
+		transitioning = true;
+		try {
+			await orchestrator.stop();
+			rebuildOrchestrator();
+			if (state.planning) disablePlanning(ctx, false);
+			await orchestrator.enterDesign(ctx);
+		} finally { transitioning = false; }
+	}
+
+	async function pauseWorkflow(ctx: ExtensionContext): Promise<void> {
+		transitioning = true;
+		try {
+			await orchestrator.stop();
+			state.paused = true;
+			state.executing = false;
+			persist(); update(ctx);
+		} finally { rebuildOrchestrator(); transitioning = false; }
+	}
+
+	async function designFeedback(args: string, ctx: ExtensionContext): Promise<void> {
+		const todo = currentTodo(state);
+		if (!todo || todo.designAccepted !== undefined || !todo.designs.length) throw new Error("No design is available for feedback.");
+		const version = state.updatedAt;
+		let feedback = args.trim();
+		if (!feedback && ctx.hasUI) feedback = (await ctx.ui.editor("Design review feedback", ""))?.trim() ?? "";
+		if (!feedback) return;
+		if (currentTodo(state) !== todo || state.updatedAt !== version) throw new Error("Workflow changed while awaiting feedback.");
+		await orchestrator.reviewDesign(ctx, feedback);
+	}
+
 	async function requestFeedback(args: string, ctx: ExtensionContext): Promise<void> {
 		const todo = currentTodo(state);
-		if (!todo || !["awaiting-user", "failed", "interrupted"].includes(todo.status)) throw new Error("No todo is available for human feedback.");
+		if (!todo || todo.designAccepted === undefined || !["awaiting-user", "failed", "interrupted"].includes(todo.status)) throw new Error("No code is available for human feedback.");
+		const version = state.updatedAt;
 		let feedback = args.trim();
 		if (!feedback && ctx.hasUI) feedback = (await ctx.ui.editor(`Changes requested for todo ${todo.step}`, ""))?.trim() ?? "";
 		if (!feedback) return;
-		if (currentTodo(state) !== todo) throw new Error("Workflow changed while awaiting feedback. Review the current todo first.");
+		if (currentTodo(state) !== todo || state.updatedAt !== version) throw new Error("Workflow changed while awaiting feedback. Review the current todo first.");
 		await orchestrator.reviseFromHuman(ctx, todo, feedback);
 	}
 
 	async function showTodoDiff(todo: WorkflowTodo, ctx: ExtensionContext): Promise<void> {
-		const title = `Todo ${todo.step} changes since previous human checkpoint`;
-		const diff = (await diffForHumanCheckpoint(ctx.cwd, todo)).preview;
+		const designPhase = todo.designAccepted === undefined && todo.designs.length > 0;
+		const title = `Todo ${todo.step}: ${designPhase ? "human design changes" : "code checkpoint changes"}`;
+		const diff = designPhase
+			? (await diffTrees(ctx.cwd, todo.designs.at(-1)!.baselineTree, await requireWorktreeSnapshot(ctx.cwd))).preview
+			: (await diffForHumanCheckpoint(ctx.cwd, todo)).preview;
 		pi.sendMessage({
 			customType: DIFF_MESSAGE_TYPE,
 			content: `${title}\n\n${diff}`,
@@ -216,26 +283,30 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 
 	async function reviewCurrent(ctx: ExtensionContext): Promise<void> {
 		const todo = currentTodo(state);
-		if (!todo) throw new Error("There is no current todo.");
+		if (!todo || todo.designAccepted === undefined) throw new Error("No code is available for review. Use /workflow design-review.");
+		const version = state.updatedAt;
 		ctx.ui.notify(todoSummary(todo), "info");
 		if (!ctx.hasUI || todo.status !== "awaiting-user") return;
 		const action = await ctx.ui.select("Human acceptance", ["Approve and continue", "Inspect todo diff", "Request changes", "Ask reviewer to reconsider", "Pause workflow", "Abort workflow"]);
-		if (currentTodo(state) !== todo) throw new Error("Workflow changed while awaiting review. Review the current todo first.");
+		if (currentTodo(state) !== todo || state.updatedAt !== version) throw new Error("Workflow changed while awaiting review. Review the current todo first.");
 		if (action === "Approve and continue") await approveCurrent(ctx);
 		else if (action === "Inspect todo diff") await showTodoDiff(todo, ctx);
 		else if (action === "Request changes") await requestFeedback("", ctx);
 		else if (action === "Ask reviewer to reconsider") await requestFeedback("Reconsider the implementation in light of the prior review and perform another independent review. Do not change code unless needed to address a concrete issue.", ctx);
-		else if (action === "Pause workflow") { state.paused = true; persist(); update(ctx); }
+		else if (action === "Pause workflow") await pauseWorkflow(ctx);
 		else if (action === "Abort workflow") await abortCurrent(ctx);
 	}
 
 	pi.registerTool({
 		name: SUBMIT_PLAN_TOOL,
 		label: "Submit Workflow Plan",
-		description: "Submit the final workflow plan as typed todos. Every implementation and review requirement must be included in each todo's instructions array.",
+		description: "Submit an initial workflow plan or stage a plan amendment. Amendments require baseRevision, existing todo IDs and affectedIds; human acceptance uses /workflow plan-approve. Include every implementation and review requirement in todo instructions.",
 		executionMode: "sequential",
 		parameters: Type.Object({
+			baseRevision: Type.Optional(Type.Integer({ minimum: 1 })),
+			affectedIds: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 			todos: Type.Array(Type.Object({
+				id: Type.Optional(Type.String({ minLength: 1 })),
 				title: Type.String({ minLength: 1 }),
 				instructions: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
 				primarySkill: Type.Optional(Type.String({ minLength: 1 })),
@@ -244,11 +315,19 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			if (!state.planning) throw new Error("Workflow plans can only be submitted while workflow planning is active.");
 			const original = state;
+			if (state.amending) {
+				if (params.baseRevision === undefined || params.affectedIds === undefined) throw new Error("Amendments require baseRevision and affectedIds.");
+				stageWorkflowAmendment(state, params.todos, params.baseRevision, params.affectedIds, getContent(ctx).skills);
+				persist(); update(ctx);
+				const plan = workflowStatusSummary(state);
+				return { content: [{ type: "text", text: plan }], details: { plan }, terminate: true };
+			}
+			const version = state.updatedAt;
 			const replacement = { ...createWorkflowState(), planning: true, ownerSessionId: ctx.sessionManager.getSessionId(), goal: state.goal, toolsBeforePlanning: state.toolsBeforePlanning };
 			submitWorkflowPlan(replacement, params.todos, getContent(ctx).skills);
 			await resolveUnknownSkillRequests(ctx, replacement.todos);
 			_signal?.throwIfAborted();
-			if (state !== original) throw new Error("Workflow changed while awaiting plan input. Submit the plan again.");
+			if (state !== original || state.updatedAt !== version) throw new Error("Workflow changed while awaiting plan input. Submit the plan again.");
 			await replaceWorkflow(ctx, replacement);
 			const plan = formatWorkflowPlan(state.todos);
 			return {
@@ -275,6 +354,10 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				const tail = rest.join(" ");
 				if (transitioning) throw new Error("A workflow transition is already in progress.");
 				if (state.discarding && !["clear", "status", "todos", "on", "off"].includes(command)) throw new Error("Workflow cleanup is unfinished. Run /workflow clear before continuing.");
+				if (state.amending && !["replan", "plan-approve", "plan-reject", "status", "todos", "help", "diff", "models", "model", "roles", "skills", "clear"].includes(command)) throw new Error("Finish the amendment with /workflow plan-approve or plan-reject.");
+				if (command === "replan") return await replan(ctx);
+				if (command === "plan-approve") return await decidePlan(ctx, true);
+				if (command === "plan-reject") return await decidePlan(ctx, false);
 				if (!command) return state.planning ? disablePlanning(ctx) : enablePlanning(ctx);
 				if (command === "on") return enablePlanning(ctx);
 				if (command === "off") return disablePlanning(ctx);
@@ -303,7 +386,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				if (command === "model") {
 					const [role, model, thinkingLevel] = rest;
 					if (!role || !model || rest.length > 3 || !isWorkflowRole(role)) {
-						throw new Error("Usage: /workflow model <implementer|reviewer> <provider/model> [thinking-level]");
+						throw new Error("Usage: /workflow model <implementer|design-reviewer|code-reviewer> <provider/model> [thinking-level]");
 					}
 					if (!isProviderModel(model)) throw new Error("Model must use a provider/model identifier.");
 					if (thinkingLevel !== undefined && !isWorkflowThinkingLevel(thinkingLevel)) {
@@ -345,6 +428,10 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 					if (state.planning) disablePlanning(ctx, false);
 					return targetStep === undefined ? await orchestrator.execute(ctx) : await orchestrator.executeFrom(ctx, targetStep);
 				}
+				if (command === "design") return await enterDesign(ctx);
+				if (command === "design-review") return await orchestrator.reviewDesign(ctx);
+				if (command === "design-feedback") return await designFeedback(tail, ctx);
+				if (command === "design-approve") return await orchestrator.approveDesign(ctx);
 				if (command === "review") return await reviewCurrent(ctx);
 				if (command === "approve") return await approveCurrent(ctx);
 				if (command === "feedback") return await requestFeedback(tail, ctx);
@@ -353,7 +440,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 					if (!selected) throw new Error("Todo not found.");
 					return await showTodoDiff(selected, ctx);
 				}
-				if (command === "pause") { state.paused = true; persist(); update(ctx); return; }
+				if (command === "pause") return await pauseWorkflow(ctx);
 				if (command === "resume") { state.paused = false; persist(); update(ctx); return await orchestrator.execute(ctx); }
 				if (command === "abort") return await abortCurrent(ctx);
 				if (command === "clear") {
@@ -380,10 +467,14 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("before_agent_start", async (event, ctx) => {
-		if (!state.planning) return;
+		if (!state.planning) {
+			const todo = currentTodo(state);
+			if (todo?.designAccepted === undefined && todo?.designs.length) return { systemPrompt: `${event.systemPrompt}\n\nWorkflow design is human-owned. Advise and discuss; preserve repository files. The human edits and requests review with /workflow design-review.\n\nCurrent checkpoint:\n${todoSummary(todo)}` };
+			return;
+		}
 		if (!state.goal && event.prompt.trim()) state.goal = event.prompt.trim();
 		const found = getContent(ctx);
-		return { systemPrompt: appendPlanningInstructions(event.systemPrompt, found.planner, found.skills) };
+		return { systemPrompt: appendPlanningInstructions(event.systemPrompt, `${found.planner}${state.amending ? `\n\n${amendmentPlanningInstructions(state)}` : ""}`, found.skills) };
 	});
 
 	async function restoreSession(ctx: ExtensionContext): Promise<void> {
@@ -408,10 +499,11 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 			ctx.ui.notify(`Workflow cleanup needs attention: ${String(error)}`, "error");
 		}
 		if (pi.getFlag("workflow") === true || restored.replanReason) state.planning = true;
-		if (state.planning) enablePlanning(ctx, false);
-		else update(ctx);
+		if (state.planning && (state.amending || !state.todos.some((todo) => todo.status !== "pending"))) enablePlanning(ctx, false);
+		else { state.planning = false; update(ctx); }
 		if (restored.replanReason) ctx.ui.notify(restored.replanReason, "warning");
 		const todo = currentTodo(state);
+		if (todo && ["design-editing", "awaiting-design"].includes(todo.status)) ctx.ui.notify(`Workflow resumed at todo ${todo.step}: ${todo.status}. Use /workflow design-review or design-approve.`, "info");
 		if (todo?.status === "awaiting-user") ctx.ui.notify(`Workflow resumed at todo ${todo.step}, awaiting your approval. Use /workflow review.`, "info");
 		if (todo?.status === "interrupted") { persist(); ctx.ui.notify(todo.error!, "warning"); }
 	}

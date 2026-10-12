@@ -16,13 +16,17 @@ import { cloneState, createWorkflowState, markWorkflowInterrupted, restoreState,
 function fixture(config: WorkflowModelConfig = {}) {
 	const root = mkdtempSync(path.join(os.tmpdir(), "workflow-orchestration-"));
 	mkdirSync(path.dirname(workflowConfigPath(root)), { recursive: true });
-	writeFileSync(workflowConfigPath(root), JSON.stringify({ implementer: { model: "test/impl" }, reviewer: { model: "test/review" }, ...config }));
+	writeFileSync(workflowConfigPath(root), JSON.stringify({ "design-reviewer": { model: "test/design" }, implementer: { model: "test/impl" }, "code-reviewer": { model: "test/review" }, ...config }));
 	const cwd = path.join(root, "work");
 	execFileSync("git", ["init", "-q", cwd]);
 	const store = new WorkflowSessionStore(path.join(root, "sessions"), "parent", cwd);
 	const ctx = { cwd, ui: { notify() {} } } as unknown as ExtensionContext;
 	const state = createWorkflowState();
 	state.todos = createWorkflowTodos([{ title: "First", instructions: ["Implement first."] }, { title: "Second", instructions: ["Implement second."] }]);
+	// Code-cycle tests start from an accepted, unchanged design checkpoint.
+	state.todos[0].designs = [{ planRevision: 1, baselineTree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904", resultTree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904", changedFiles: [], reviews: [], accepted: true }];
+	state.todos[0].designAccepted = 0;
+	state.todos[0].status = "interrupted";
 	const calls: AgentRunOptions[] = [];
 	const saved: WorkflowState[] = [];
 	const verdicts: string[] = [];
@@ -33,7 +37,8 @@ function fixture(config: WorkflowModelConfig = {}) {
 			async models() { return await loadWorkflowModelConfig(root) as CompleteWorkflowModelConfig; },
 			content: () => ({ planner: "", skills: {}, diagnostics: [], roles: {
 				implementer: { name: "implementer", body: "Implement.", filePath: "/impl.md", source: "bundled" },
-				reviewer: { name: "reviewer", body: "Review.", filePath: "/review.md", source: "bundled" },
+				"design-reviewer": { name: "design-reviewer", body: "Design review.", filePath: "/design.md", source: "bundled" },
+				"code-reviewer": { name: "code-reviewer", body: "Review.", filePath: "/review.md", source: "bundled" },
 			} }),
 			async runAgent(options) {
 				calls.push(options);
@@ -64,8 +69,8 @@ test("omitted configuration preserves discovery and the two-cycle maximum", asyn
 for (const [implementer, reviewer] of [[false, true], [true, false]]) {
 	test(`role discovery settings are independent (implementer: ${implementer}, reviewer: ${reviewer})`, async () => {
 		const f = fixture({
-			implementer: { model: "test/impl", "context-file-discovery": implementer },
-			reviewer: { model: "test/review", "context-file-discovery": reviewer },
+			"design-reviewer": { model: "test/design" }, implementer: { model: "test/impl", "context-file-discovery": implementer },
+			"code-reviewer": { model: "test/review", "context-file-discovery": reviewer },
 		});
 		try {
 			await f.orchestrator().execute(f.ctx);
@@ -79,7 +84,7 @@ test("a one-cycle maximum still implements and reviews before escalating", async
 	try {
 		f.verdicts.push("request_changes");
 		await f.orchestrator().execute(f.ctx);
-		assert.deepEqual(f.calls.map((call) => call.roleName), ["workflow-implementer", "workflow-reviewer"]);
+		assert.deepEqual(f.calls.map((call) => call.roleName), ["workflow-implementer", "workflow-code-reviewer"]);
 		assert.equal(f.state.todos[0].automaticReviewCycles, 1);
 		assert.equal(f.state.todos[0].status, "awaiting-user");
 	} finally { f.close(); }
@@ -117,8 +122,8 @@ test("human feedback starts a fresh allowance using reloaded configuration", asy
 		const run = f.orchestrator();
 		await run.execute(f.ctx);
 		await writeWorkflowModelConfig({
-			implementer: { model: "test/impl" },
-			reviewer: { model: "test/review" },
+			"design-reviewer": { model: "test/design" }, implementer: { model: "test/impl" },
+			"code-reviewer": { model: "test/review" },
 			"max-review-cycles": 3,
 		}, f.root);
 		f.verdicts.push("request_changes", "request_changes", "request_changes");
@@ -135,7 +140,7 @@ test("resumed review reloads the maximum while retaining the persisted cycle cou
 	try {
 		let reviews = 0;
 		f.controls.beforeRun = async (options) => {
-			if (options.roleName === "workflow-reviewer" && ++reviews === 2) throw new Error("review disconnected");
+			if (options.roleName === "workflow-code-reviewer" && ++reviews === 2) throw new Error("review disconnected");
 		};
 		f.verdicts.push("request_changes");
 		await f.orchestrator().execute(f.ctx);
@@ -143,15 +148,15 @@ test("resumed review reloads the maximum while retaining the persisted cycle cou
 		assert.equal(f.state.todos[0].automaticReviewCycles, 2);
 		const restored = restoreState(cloneState(f.state))!;
 		await writeWorkflowModelConfig({
-			implementer: { model: "test/impl" },
-			reviewer: { model: "test/review" },
+			"design-reviewer": { model: "test/design" }, implementer: { model: "test/impl" },
+			"code-reviewer": { model: "test/review" },
 			"max-review-cycles": 2,
 		}, f.root);
 		f.controls.beforeRun = async () => {};
 		f.verdicts.push("request_changes");
 		await f.orchestrator(restored).execute(f.ctx);
 		assert.equal(f.calls.length, 5);
-		assert.equal(f.calls[4].roleName, "workflow-reviewer");
+		assert.equal(f.calls[4].roleName, "workflow-code-reviewer");
 		assert.equal(restored.todos[0].automaticReviewCycles, 2);
 		assert.equal(restored.todos[0].status, "awaiting-user");
 	} finally { f.close(); }
@@ -164,8 +169,8 @@ test("resumed implementers and reviewers use updated discovery settings", async 
 		await f.orchestrator().execute(f.ctx);
 		const restored = restoreState(cloneState(f.state))!;
 		await writeWorkflowModelConfig({
-			implementer: { model: "test/impl", "context-file-discovery": false },
-			reviewer: { model: "test/review", "context-file-discovery": true },
+			"design-reviewer": { model: "test/design" }, implementer: { model: "test/impl", "context-file-discovery": false },
+			"code-reviewer": { model: "test/review", "context-file-discovery": true },
 		}, f.root);
 		f.controls.beforeRun = async () => {};
 		await f.orchestrator(restored).execute(f.ctx);
@@ -203,6 +208,8 @@ test("a new todo gets new role sessions", async () => {
 		f.state.todos[0].status = "approved";
 		f.state.currentStep = 2;
 		await run.execute(f.ctx);
+		await run.reviewDesign(f.ctx);
+		await run.approveDesign(f.ctx);
 		assert.notEqual(f.calls[0].sessionFile, f.calls[2].sessionFile);
 		assert.notEqual(f.calls[1].sessionFile, f.calls[3].sessionFile);
 		assert.match(f.calls[2].task, /^Implement todo 2/);
@@ -224,14 +231,14 @@ test("a restored human checkpoint continues the persisted conversations", async 
 test("failed review resumes review without reimplementing completed work", async () => {
 	const f = fixture();
 	try {
-		f.controls.beforeRun = async (options) => { if (options.roleName === "workflow-reviewer") throw new Error("review disconnected"); };
+		f.controls.beforeRun = async (options) => { if (options.roleName === "workflow-code-reviewer") throw new Error("review disconnected"); };
 		await f.orchestrator().execute(f.ctx);
 		assert.equal(f.state.todos[0].status, "failed");
-		assert.deepEqual(f.state.todos[0].checkpoint, { role: "reviewer", revisionIndex: 0 });
+		assert.deepEqual(f.state.todos[0].checkpoint, { role: "code-reviewer", revisionIndex: 0 });
 		const restored = restoreState(cloneState(f.state))!;
 		f.controls.beforeRun = async () => {};
 		await f.orchestrator(restored).execute(f.ctx);
-		assert.deepEqual(f.calls.map((call) => call.roleName), ["workflow-implementer", "workflow-reviewer", "workflow-reviewer"]);
+		assert.deepEqual(f.calls.map((call) => call.roleName), ["workflow-implementer", "workflow-code-reviewer", "workflow-code-reviewer"]);
 		assert.equal(f.calls[1].sessionFile, f.calls[2].sessionFile);
 		assert.equal(restored.todos[0].attempts, 1);
 		assert.equal(restored.todos[0].status, "awaiting-user");

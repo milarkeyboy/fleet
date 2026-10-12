@@ -3,6 +3,7 @@ import { cp, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { WORKFLOW_ROLES, type WorkflowRole } from "./state.ts";
 
 export type ContentSource = "user" | "project";
 
@@ -15,7 +16,7 @@ export interface MarkdownContent {
 }
 
 export interface WorkflowRoleContent {
-	name: "implementer" | "reviewer";
+	name: WorkflowRole;
 	body: string;
 	filePath: string;
 	source: "bundled" | ContentSource;
@@ -23,7 +24,7 @@ export interface WorkflowRoleContent {
 
 export interface WorkflowContent {
 	planner: string;
-	roles: Record<"implementer" | "reviewer", WorkflowRoleContent>;
+	roles: Record<WorkflowRole, WorkflowRoleContent>;
 	skills: Record<string, MarkdownContent>;
 	diagnostics: string[];
 	projectAgentsDir?: string;
@@ -147,7 +148,8 @@ export function discoverWorkflowContent(cwd: string, projectTrusted: boolean, ho
 	const planner = readFileSync(path.join(bundled, "planner.md"), "utf8");
 	const roles = {
 		implementer: resolveRole("implementer", roleSources("implementer")),
-		reviewer: resolveRole("reviewer", roleSources("reviewer")),
+		"design-reviewer": resolveRole("design-reviewer", roleSources("design-reviewer")),
+		"code-reviewer": resolveRole("code-reviewer", roleSources("code-reviewer")),
 	};
 
 	const skills = new Map<string, MarkdownContent>();
@@ -184,7 +186,7 @@ export function bundledContentRoot(): string {
 export async function scaffoldWorkflowRoles(agentsDir: string): Promise<void> {
 	const rolesDir = path.join(agentsDir, "workflow", "roles");
 	await mkdir(rolesDir, { recursive: true });
-	for (const role of ["implementer", "reviewer"]) {
+	for (const role of WORKFLOW_ROLES) {
 		await cp(path.join(bundledContentRoot(), "roles", `${role}.md`), path.join(rolesDir, `${role}.md`), {
 			force: false,
 			errorOnExist: false,

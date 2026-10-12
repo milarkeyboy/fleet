@@ -1,0 +1,14 @@
+@startuml
+title Amend plan during design
+
+actor Human
+participant "Top-level agent" as Agent
+participant "Design review agent" as Reviewer
+
+Human -> Agent : Discuss plan amendment
+Agent --> Human : Proposed plan; affected todos
+Human -> Agent : Accept amendment
+Human -> Human : Update design
+Human -> Reviewer : Review design against amended plan
+Reviewer --> Human : Findings
+@enduml

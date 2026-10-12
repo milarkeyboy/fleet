@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { MarkdownContent, WorkflowContent } from "../content.ts";
-import { implementerInvocation, reviewerInvocation } from "../context.ts";
+import { implementerInvocation, codeReviewerInvocation } from "../context.ts";
 import { formatWorkflowPlan, formatWorkflowTodo } from "../planner.ts";
 import { createWorkflowState, type WorkflowTodo } from "../state.ts";
 
@@ -15,7 +15,8 @@ function content(): WorkflowContent {
 		planner: "Planner prompt",
 		roles: {
 			implementer: { name: "implementer", body: "Implementer prompt", filePath: "/roles/implementer.md", source: "bundled" },
-			reviewer: { name: "reviewer", body: "Reviewer prompt", filePath: "/roles/reviewer.md", source: "bundled" },
+			"design-reviewer": { name: "design-reviewer", body: "Design review.", filePath: "/design.md", source: "bundled" },
+			"code-reviewer": { name: "code-reviewer", body: "Reviewer prompt", filePath: "/roles/code-reviewer.md", source: "bundled" },
 		},
 		skills: { cpp: skill("cpp"), python: skill("python") },
 		diagnostics: [],
@@ -24,7 +25,7 @@ function content(): WorkflowContent {
 
 function todo(primarySkill?: string): WorkflowTodo {
 	return {
-		step: 1,
+		id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1,
 		title: "Implement task",
 		instructions: ["Move `old/task.ts` to `new/task.ts`.", "Preserve existing behavior."],
 		...(primarySkill ? { primarySkill } : {}),
@@ -53,7 +54,7 @@ test("the todo primary skill is supplied to implementers and reviewers", () => {
 	const implementationTodo = todo("cpp");
 	const implementation = implementerInvocation(stateWith(implementationTodo), implementationTodo, content());
 	const reviewed = todo("python");
-	const review = reviewerInvocation(stateWith(reviewed), reviewed, content());
+	const review = codeReviewerInvocation(stateWith(reviewed), reviewed, content());
 	assert.deepEqual(implementation.skillPaths, ["/content/cpp/SKILL.md"]);
 	assert.deepEqual(review.skillPaths, ["/content/python/SKILL.md"]);
 });
@@ -75,7 +76,7 @@ test("implementers retain human requirements alongside later reviewer findings",
 	assert.match(invocation.systemPrompt, /Human revision requirements \(take precedence/);
 });
 
-for (const [role, invoke] of [["implementer", implementerInvocation], ["reviewer", reviewerInvocation]] as const) {
+for (const [role, invoke] of [["implementer", implementerInvocation], ["code-reviewer", codeReviewerInvocation]] as const) {
 	test(`${role} receives all human feedback chronologically through automatic retries`, () => {
 		const task = todo();
 		task.revisions = [
@@ -125,7 +126,7 @@ test("interrupted implementers reconcile edits before repeating work", () => {
 
 test("returning reviewers reassess current changes despite earlier verdicts", () => {
 	const task = todo();
-	const invocation = reviewerInvocation(stateWith(task), task, content(), { continuing: true });
+	const invocation = codeReviewerInvocation(stateWith(task), task, content(), { continuing: true });
 	assert.match(invocation.task, /^Review again todo 1/);
 	assert.match(invocation.task, /independently of your earlier verdicts/);
 	assert.match(invocation.task, /newest supplied diff/);
@@ -133,18 +134,18 @@ test("returning reviewers reassess current changes despite earlier verdicts", ()
 
 test("implementers and reviewers receive the identical complete canonical plan", () => {
 	const approved = todo();
-	Object.assign(approved, { step: 1, title: "Prepare state", instructions: ["Create `state.ts`.", "Keep the public API."], status: "approved" });
+	Object.assign(approved, { id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1, title: "Prepare state", instructions: ["Create `state.ts`.", "Keep the public API."], status: "approved" });
 	const current = todo();
-	Object.assign(current, { step: 2, title: "Implement current behavior", instructions: ["Move `old.ts` to `exact/new.ts`.", "Run focused tests."], status: "implementing" });
+	Object.assign(current, { id: "00000000-0000-0000-0000-000000000002", designs: [], feedbackStart: 0, step: 2, title: "Implement current behavior", instructions: ["Move `old.ts` to `exact/new.ts`.", "Run focused tests."], status: "implementing" });
 	const upcoming = todo();
-	Object.assign(upcoming, { step: 3, title: "Add later UI", instructions: ["Add the widget later."], status: "pending" });
+	Object.assign(upcoming, { id: "00000000-0000-0000-0000-000000000003", designs: [], feedbackStart: 0, step: 3, title: "Add later UI", instructions: ["Add the widget later."], status: "pending" });
 	const aborted = todo();
-	Object.assign(aborted, { step: 4, title: "Discarded task", instructions: ["Do not implement this."], status: "aborted" });
+	Object.assign(aborted, { id: "00000000-0000-0000-0000-000000000004", designs: [], feedbackStart: 0, step: 4, title: "Discarded task", instructions: ["Do not implement this."], status: "aborted" });
 	const state = stateWith(approved, current, upcoming, aborted);
 	const canonical = formatWorkflowPlan(state.todos);
 
 	const implementation = implementerInvocation(state, current, content());
-	const review = reviewerInvocation(state, current, content());
+	const review = codeReviewerInvocation(state, current, content());
 	assert.ok(implementation.systemPrompt.includes(canonical));
 	assert.ok(review.systemPrompt.includes(canonical));
 	assert.ok(implementation.systemPrompt.includes(formatWorkflowTodo(current)));
@@ -155,36 +156,36 @@ test("implementers and reviewers receive the identical complete canonical plan",
 	assert.match(review.systemPrompt, /Todo 3: upcoming/);
 	assert.match(implementation.systemPrompt, /Do not implement work assigned to upcoming todos/);
 	assert.match(implementation.systemPrompt, /return blocked instead of absorbing future scope/);
-	assert.match(implementation.systemPrompt, /Explicit human revision requirements override this boundary/);
+	assert.match(implementation.systemPrompt, /Human code feedback must remain within this boundary and the accepted design/);
 	assert.match(review.systemPrompt, /Flag implementation of upcoming todos as scope leakage/);
 	assert.match(review.systemPrompt, /do not request work assigned to them/);
 	assert.match(review.systemPrompt, /escalate instead of expanding its scope/);
-	assert.match(review.systemPrompt, /override the plan boundary when explicit/);
+	assert.match(review.systemPrompt, /within the accepted design and plan/);
 });
 
 test("later implementers are told when prerequisite todos were completed manually", () => {
 	const manual = todo();
-	Object.assign(manual, { step: 1, title: "Manual prerequisite", instructions: ["Complete by hand."], status: "completed-manually", revisions: [] });
+	Object.assign(manual, { id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1, title: "Manual prerequisite", instructions: ["Complete by hand."], status: "completed-manually", revisions: [] });
 	const current = todo();
-	Object.assign(current, { step: 2, title: "Continue work", instructions: ["Use the prerequisite."], status: "implementing" });
+	Object.assign(current, { id: "00000000-0000-0000-0000-000000000002", designs: [], feedbackStart: 0, step: 2, title: "Continue work", instructions: ["Use the prerequisite."], status: "implementing" });
 	const invocation = implementerInvocation(stateWith(manual, current), current, content());
 	assert.match(invocation.systemPrompt, /Todo 1: completed-manually/);
 	assert.match(invocation.task, /Todo 1: Completed manually; inspect the current worktree/);
 });
 
-test("reviewers receive only the current revision files and diff", () => {
+test("code reviewers receive the current diff and retained implementation history", () => {
 	const reviewed = todo();
 	reviewed.revisions = [
 		{ humanFeedback: "Preserve the public API.", implementation: { status: "completed", summary: "first", filesChanged: ["one.ts"], tests: [] }, changedFiles: ["one.ts"], diffPreview: "diff one" },
 		{ implementation: { status: "completed", summary: "second", filesChanged: ["two.ts"], tests: [] }, changedFiles: ["two.ts"], diffPreview: "diff two", cumulativeChangedFiles: ["one.ts", "two.ts"], cumulativeDiffPreview: "diff one\ndiff two", humanCheckpointChangedFiles: ["one.ts", "two.ts"], humanCheckpointDiffPreview: "human checkpoint only" },
 	];
-	const invocation = reviewerInvocation(stateWith(reviewed), reviewed, content());
-	assert.match(invocation.systemPrompt, /Treat supplied human feedback as revision requirements/);
+	const invocation = codeReviewerInvocation(stateWith(reviewed), reviewed, content());
+	assert.match(invocation.systemPrompt, /Treat supplied human feedback as code revision requirements/);
 	assert.match(invocation.systemPrompt, /Preserve the public API\./);
 	assert.match(invocation.task, /second/);
 	assert.match(invocation.task, /two\.ts/);
 	assert.match(invocation.task, /diff two/);
-	assert.doesNotMatch(invocation.task, /one\.ts/);
-	assert.doesNotMatch(invocation.task, /diff one/);
+	assert.match(invocation.task, /one\.ts/);
+	assert.match(invocation.task, /diff one/);
 	assert.doesNotMatch(invocation.task, /human checkpoint only/);
 });

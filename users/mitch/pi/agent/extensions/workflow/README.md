@@ -1,79 +1,134 @@
-# Workflow: planned implement/review/human cycles for pi
+# Workflow: human design, agent implementation and review
 
-`/workflow` turns a plan into sequential, isolated implementer and reviewer
-runs, then pauses for human approval after every todo. Planning remains
-conversational in the top-level pi session; the extension does not use a planner
-subagent or planner role.
+`/workflow` executes sequential todos in a Git working tree. Planning uses the
+normal top-level Pi conversation. Each executed todo starts with human design
+editing, followed by isolated implementation and review agents.
 
 ## Lifecycle
 
 ```text
 conversational planning
-  → implementer (isolated context)
-  → reviewer (separate, read-only conversation)
-  → automatic revisions when requested, up to the configured cycle maximum
-  → human acceptance
-     ↳ feedback → implementer → reviewer (repeat as needed)
-  → next todo
+  → human design editing
+  → design review → human design acceptance
+  → implementation → code review ↔ automatic code revisions
+  → human code acceptance
+  → next todo's design editing
 ```
 
-A todo is complete after review and explicit human approval, or when the user
-explicitly marks it completed manually by forcing execution from a later todo.
+An empty design diff skips the design reviewer and still requires human
+confirmation. Review verdicts are advisory; acceptance is an explicit human
+command. Forced execution from a later todo marks skipped work completed manually.
+
+See the [concise diagrams and design rules](design/README.md).
+
+## Human-owned design
+
+Entering design captures a Git baseline. Edit repository files using an external
+editor, then request review. The changes since entering the phase identify the
+design, including Markdown, Doxygen, signatures and types. Earlier edits remain
+repository context. Design changes may temporarily break compilation.
+
+Agents receive the human design diffs and instructions to preserve the design.
+Ownership relies on instructions and review; implementers retain normal write
+and shell tools. The human chooses the design material through their edits.
+
+```text
+/workflow execute
+# Edit design files, or leave the design unchanged.
+/workflow design-review
+/workflow diff
+/workflow design-approve
+# Inspect implementation and code review.
+/workflow review
+/workflow approve
+```
+
+Design review checks consistency, feasibility, missing decisions, scope and
+testability. Code review checks implementation quality and conformance to the
+accepted design. Both reviewers have read/search tools only.
+
+Further design edits can be submitted with `design-review` again. All reviews
+in a design phase share its original baseline and role conversation.
+`design-feedback` asks the reviewer to reconsider, with optional human feedback.
+Changes made during review or before acceptance require another review.
+
+## Changing design or scope
+
+Use `/workflow design` before editing design during implementation. The extension
+stops and awaits the active worker, preserves partial work and enters human
+editing. After acceptance, the implementer reconciles retained work against the
+revised contract. Code review also receives earlier implementation diffs so
+retained work is reassessed.
+
+Implementers and code reviewers report structured `design` or `plan` blockers
+when a human decision is needed. Blockers bypass automatic revisions and pause
+at a change checkpoint. Choose `design` or `replan` to resolve them. Ordinary code
+feedback remains within the accepted design and plan scope.
+
+`/workflow replan` stops workers and enters conversational amendment in the
+top-level session. The agent submits a proposal through `workflow_submit_plan`
+with the current `baseRevision`, stable todo `id` values and `affectedIds`.
+Status lists the identities and staged proposal. Submission leaves the accepted
+plan unchanged; `/workflow plan-approve` accepts it and `/workflow plan-reject`
+retains the accepted plan.
+
+Amendments:
+
+- Retain existing todo identities; omit `id` for newly added work.
+- Confirm every changed or otherwise affected unfinished todo in `affectedIds`.
+  New todos are affected automatically.
+- Keep completed todos at the beginning, unchanged and in their existing order.
+  Add corrective todos when completed work needs changing.
+- Preserve plan history, results and role conversations when splitting or
+  reordering unfinished work.
+- Invalidate affected approvals and require renewed design acceptance.
+  Unaffected checkpoints remain available.
+
+Affected design edits already made remain available for review against the
+amended plan. Older requirements and findings remain historical where the new
+assignment supersedes them.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
-| `/workflow` or `/workflow on` | Enable conversational workflow planning with local write guards |
-| `/workflow off` | Leave planning without executing |
-| `/workflow execute [step]` | Execute the accepted plan, or cancel the active run and continue from a later pending todo |
-| `/workflow status` / `todos` | Show todo state and optional skill assignments |
-| `/workflow skills` | List discovered Agent Skills |
-| `/workflow skill N NAME\|none` | Assign or clear a todo's primary skill |
-| `/workflow models` | Show implementer and reviewer model configuration |
-| `/workflow model ROLE PROVIDER/MODEL [LEVEL]` | Configure a role model and optional thinking level |
-| `/workflow review` | Show the current checkpoint and approval menu |
-| `/workflow approve` | Approve the current todo and start the next |
-| `/workflow feedback [text]` | Request a revision followed by another review |
-| `/workflow diff [step]` | Show net changes since the previous human checkpoint |
-| `/workflow pause` / `resume` | Pause or resume orchestration |
+| `/workflow [on\|off]` | Toggle initial conversational planning with local write guards |
+| `/workflow execute [step]` | Enter design, resume interrupted work, or skip to a later pending todo |
+| `/workflow design` | Enter or return to human design editing after stopping workers |
+| `/workflow design-review` | Review design changes, or prepare an empty-phase confirmation |
+| `/workflow design-feedback [text]` | Ask the design reviewer to reconsider |
+| `/workflow design-approve` | Accept the design checkpoint and start implementation |
+| `/workflow replan` | Amend the accepted plan in the top-level conversation |
+| `/workflow plan-approve\|plan-reject` | Decide a plan amendment |
+| `/workflow review` | Show code results and the human acceptance menu |
+| `/workflow approve` | Accept code and enter the next todo's design phase |
+| `/workflow feedback [text]` | Request code revisions followed by review |
+| `/workflow diff [step]` | Show phase-labelled design or code-checkpoint changes |
+| `/workflow status\|todos` | Show the canonical plan, identities, phases and proposed amendment |
+| `/workflow pause\|resume` | Stop and await workers, or explicitly resume orchestration |
 | `/workflow abort` | Abort the current todo |
-| `/workflow roles` | Show resolved roles, skills, and diagnostics |
-| `/workflow init` | Copy portable role placeholders into the project |
-| `/workflow clear` | Clear workflow state |
+| `/workflow models` | Show all three role model assignments |
+| `/workflow model ROLE PROVIDER/MODEL [LEVEL]` | Configure a role model and thinking level |
+| `/workflow skills` / `skill N NAME\|none` | Inspect or assign optional primary skills |
+| `/workflow roles` | Show resolved roles, skills and diagnostics |
+| `/workflow init` | Scaffold portable role prompts in the trusted project |
+| `/workflow clear` | Stop workers and clear workflow state |
 
-`pi --workflow` starts with workflow planning enabled.
+`pi --workflow` enables initial planning. Use `replan` once work has started.
+Commands work without an interactive UI; optional dialogues require UI support.
 
-## Role models
+## Models and review allowance
 
-Both subagent roles require explicit global model assignments before execution:
+Configure every subagent explicitly:
 
 ```text
 /workflow model implementer openai-codex/gpt-5.6-sol high
-/workflow model reviewer openai-codex/gpt-5.6-sol high
-/workflow models
+/workflow model design-reviewer openai-codex/gpt-5.6-sol high
+/workflow model code-reviewer openai-codex/gpt-5.6-sol high
 ```
 
-Configuration is stored in pi's agent directory at `workflow/config.json`
-(normally `~/.pi/agent/workflow/config.json`). It is deliberately outside
-repositories and portable Markdown. Subagents never fall back to the top-level
-model or thinking level. An omitted role thinking level selects `off`, including
-when reopening a conversation that previously used another level.
-
-Before changing todo state, the extension creates a subprocess-equivalent model
-registry and checks both model availability and authentication. Models
-registered only by extensions are unavailable because subagents use
-`--no-extensions`. A top-level `--api-key` is runtime-only and is not inherited;
-credentials must be available through `/login`/`auth.json`, `models.json`, or
-the inherited environment.
-
-The exact model and thinking level used are recorded with each implementation
-and review artefact and shown in todo summaries.
-
-## Context and review configuration
-
-Edit `~/.pi/agent/workflow/config.json` to configure discovery independently for
-each role and the maximum number of implement/review cycles per human checkpoint:
+Settings live outside repositories at
+`<agent-dir>/workflow/config.json`, normally `~/.pi/agent/workflow/config.json`:
 
 ```json
 {
@@ -82,254 +137,122 @@ each role and the maximum number of implement/review cycles per human checkpoint
     "thinkingLevel": "high",
     "context-file-discovery": false
   },
-  "reviewer": {
+  "design-reviewer": {
     "model": "openai-codex/gpt-5.6-sol",
-    "thinkingLevel": "high",
-    "context-file-discovery": true
+    "thinkingLevel": "high"
   },
-  "max-review-cycles": 3
+  "code-reviewer": {
+    "model": "openai-codex/gpt-5.6-sol",
+    "thinkingLevel": "high"
+  },
+  "max-review-cycles": 2
 }
 ```
 
-`context-file-discovery` defaults to `true`. Setting it to `false` adds Pi's
-`--no-context-files` argument for that role, disabling automatic discovery of
-user, ancestor-directory and working-directory `AGENTS.md`/`CLAUDE.md` files and
-their supported variants. Role prompts, the workflow plan and assigned skills
-are still supplied. Supply selected instructions through role Markdown or todo
-instructions when discovery is disabled.
+`context-file-discovery` defaults to `true` independently for each role.
+Setting it to `false` passes Pi's `--no-context-files`; role prompts, the plan
+and assigned skills are still supplied. An omitted thinking level selects `off`.
 
-`max-review-cycles` defaults to `2` and must be a positive safe integer. It counts
-the initial implement/review cycle; `1` performs that cycle and sends any
-requested changes straight to the human checkpoint. Human feedback resets the
-count and starts a fresh allowance. Approval or escalation can end the cycle
-before the maximum is reached.
+`max-review-cycles` is a positive safe integer, defaulting to `2`. It counts the
+initial implement/code-review cycle. Code feedback starts a fresh allowance;
+design review always returns to the human. Configuration reloads before each
+execution, resumption or feedback round and stays fixed during automatic code
+revisions. Model availability and authentication are checked before workers run.
 
-Configuration is reloaded before each execution, resumption or human-feedback
-round and remains fixed during its automatic revisions. `/workflow model`
-preserves discovery settings and the cycle maximum. Changes affect subsequent
-invocations; existing role-conversation history remains available. Start a new
-plan for fresh conversations if previously loaded context must be removed.
+Subagents use `--no-extensions`, so models require availability through Pi's
+built-in catalogue or global `models.json`. Credentials come from login/auth
+storage, model configuration or inherited environment. Top-level `--api-key`
+overrides remain runtime-only. Artefacts record the model and thinking level used.
 
-## Planning and optional skills
+The previous `reviewer` assignment and role file are replaced by explicit
+`design-reviewer` and `code-reviewer` settings and prompts. Configure both roles
+and move any personalised code-review guidance to `code-reviewer.md`.
 
-Planning uses the top-level session's selected model, conversation, context
-files, and normal system prompt. While planning is active, the extension appends
-the bundled `content/planner.md`, typed-submission instructions, and the names
-and descriptions of currently discovered skills. Planning blocks built-in `edit`
-and `write` calls and restricts Bash to read-only commands, including calls made
-through `codemode`. The shared `questionnaire` tool remains available for important
-decisions.
+## Planning, roles and skills
 
-Planning preserves active MCP tools, resource tools, `codemode` and `tool_search`,
-so the planner can read Jira issues and use other configured integrations.
-The `download-file` extension supplies `download_file({ url })` during planning.
-Use it with a signed Jira attachment URL, then pass its returned temporary path to
-`read`. Downloads use a managed temporary directory, so reference images can be
-fetched while the existing Bash restrictions remain in place.
+Initial plans use typed `workflow_submit_plan` todos with a title, complete
+instructions and an optional primary skill. Subagents receive the complete
+canonical plan and current assignment, rather than the planning conversation.
+External requirements should therefore be summarised in todo instructions.
 
-MCP operations, including external writes, remain governed by the server's
-permissions and any separate permission extensions. Workflow's local write guards
-apply to built-in tools; MCP servers retain their configured capabilities,
-including local filesystem access where provided.
+Planning blocks built-in `edit` and `write` and restricts Bash to read-only
+commands, including nested calls through `codemode`. MCP integrations, resource
+access, `questionnaire` and temporary attachment downloads remain available.
+MCP operations retain their server permissions, including any external writes.
 
-The planner submits its final plan through `workflow_submit_plan` as native todo
-objects containing a title, an instructions array, and an optional primary
-skill. The extension does not parse an assistant Markdown response. Every
-requirement needed during implementation or review must be included in the
-instructions array because subagents do not inherit the planning conversation.
+Role Markdown customises personality and review preferences. Required workflow
+instructions, result schemas and routing rules are supplied by the extension's
+TypeScript protocols, independently of the customised Markdown.
 
-One deterministic formatter renders those objects as the canonical plan shown by
-the submission tool, `/workflow status`, and `/workflow todos`. The same
-formatter supplies the complete plan and current todo to both subagent roles.
-Role protocols, workflow statuses, human feedback, implementation results, and
-diffs are additional context rather than part of the canonical plan. This
-guarantees delivery of the reviewed plan text, not model compliance with it.
-
-The planner is told to leave the primary skill unset when no discovered skill
-applies. Untagged todos execute normally. Skill values must use exact discovered
-names. An unknown explicit skill must be resolved interactively or with
-`/workflow skill N NAME|none` before execution.
-
-Workflow state uses version 6. Older workflows require a new plan; their state
-and subagent conversations are not migrated.
-
-## Portable roles and Agent Skills
-
-Run `/workflow init` in a trusted project to create:
+`/workflow init` creates plain Markdown personality prompts under `.agents/workflow/roles/`:
 
 ```text
-.agents/
-└── workflow/
-    └── roles/
-        ├── implementer.md
-        └── reviewer.md
+implementer.md
+design-reviewer.md
+code-reviewer.md
 ```
 
-Role files are plain Markdown prompts with no frontmatter, so they can also be
-supplied directly to other subagent harnesses.
+Role precedence is bundled, user `~/.agents/workflow/roles/`, then trusted project
+`.agents/workflow/roles/`. Standard skills are discovered recursively under
+`~/.agents/skills/` and trusted project `.agents/skills/`; project skills override
+matching user names. Untagged todos run normally. Unknown selected skills require
+resolution before execution. Role and skill Markdown should be reviewed before
+trusting a project.
 
-Add any standard Agent Skill at `~/.agents/skills/<name>/SKILL.md` or
-`.agents/skills/<name>/SKILL.md`; recursive discovery makes it immediately
-available without TypeScript changes.
+## Persistence and recovery
 
-Discovery precedence is:
+Each todo owns separate persisted role conversations. Revisions and retries
+reuse them; subsequent todos start fresh conversations. Each invocation uses a
+short-lived Pi JSON subprocess with `--session`, `--no-extensions`, `--no-skills`
+and explicit selected skills, plus `--no-prompt-templates`. The host bash-policy
+extension is loaded explicitly.
 
-1. user `~/.agents/skills/`
-2. trusted project `.agents/skills/`
+Authoritative system snapshots preserve the current plan, assignment, human
+requirements and accepted design through compaction. Historical conversations
+remain available, while the current snapshot governs superseded requirements.
+Workers inspect current files; reviewers reassess independently of earlier verdicts.
 
-Project skills override user skills with the same canonical name. `/workflow
-roles` reports overrides, invalid skills, and duplicate names. Project content
-is ignored until the project is trusted.
+Git snapshots use a temporary index and include tracked and untracked non-ignored
+files under the working directory, preserving the real index and worktree.
+Implementation revisions have separate before/after diffs from human design
+phases. Code checkpoint diffs cover automatic cycles since the latest human code
+feedback or design acceptance. Earlier implementation diffs remain review context.
 
-## Execution and policy
+State version 7 persists design and implementation history, plan amendments,
+approvals, models, session references and recovery checkpoints. Older workflows
+require a fresh plan; retained parent-session history and old conversations remain
+available for inspection.
 
-Pi and workflow subagents execute in the host working tree. Bash commands run
-on the host with the invoking user's normal permissions; there is no Gondolin
-VM or QEMU boundary in the current configuration. File tools likewise operate
-on the host workspace.
+Private transcripts live under `<agent-dir>/workflow/sessions/<workflow-id>/`.
+Stable todo identities keep paths valid after reordering. A persisted lease
+prevents concurrent workers and blocks resumption while a surviving child exists.
+Ambiguous interrupted launches require inspection of the reported lock path.
 
-The bash-policy extension is enabled for top-level sessions and is explicitly
-loaded by each workflow subprocess. It denies selected textual forms of
-high-risk bash commands before execution: privilege escalation, host
-management, destructive Git operations (including direct matched forms of
-`git push`), catastrophic deletion, and selected global package-install
-forms. Its matching is deterministic: rules are evaluated in fixed source
-order and the first match supplies the denial category.
+Quit, reload and pause stop and await workers. Restart marks in-flight work
+interrupted and waits for explicit resumption. Interrupted implementation
+reconciles existing edits; completed implementation can resume directly at code
+review. Design review retains its baseline and feedback. Editing files after a
+review invalidates that acceptance checkpoint.
 
-The policy is only a guardrail, not a sandbox or complete security boundary.
-It uses text matching rather than a shell parser, so command prefixes such as
-`git -C repo push`, `/usr/bin/git push`, and `command git push`, as well as
-obfuscation and indirect execution, may evade it. It does not restrict
-filesystem, network, or process access, and accepted commands can affect the
-host. Review consequential commands and do not infer safety from the absence
-of a denial. The Gondolin source remains under `extensions/gondolin` for
-possible future re-enablement, but it is excluded from extension discovery in
-the current settings.
+Stopping preserves worktree edits. Code approval, manual completion and abort
+remove finished todo transcripts while retaining summaries. Clearing or replacing
+an initial plan removes its managed conversations; amendments preserve them.
+Missing or invalid established transcripts require explicit recovery through a
+fresh plan. Divergent parent-session histories and forks require new workflows;
+other histories' transcripts remain untouched.
 
-## Context isolation
+## Execution policy and tests
 
-Each todo owns two persisted Pi conversations: one implementer and one reviewer.
-Automatic revisions, human feedback and retries reopen the same role conversation.
-The next todo starts new conversations. Each invocation uses a short-lived Pi
-JSON-mode subprocess launched with:
-
-- `--session <role-session-file>`
-- `--no-extensions`
-- `--no-skills`, followed by zero or more explicit `--skill` arguments
-- `--no-prompt-templates`
-- the role's required configured model and thinking level
-
-Subagents retain Pi's normal context-file discovery unless disabled for their
-role in `workflow/config.json`. Both roles receive the complete canonical
-workflow plan and a separate status list marking each todo as approved,
-completed manually, current, upcoming, or aborted. The plan is a scope boundary:
-implementers must not absorb upcoming work, and reviewers must flag scope
-leakage without requesting work assigned to later todos.
-
-Both roles receive an authoritative system-prompt snapshot containing the complete
-plan, current assignment and chronological human feedback for the current todo.
-Pi preserves that system snapshot through compaction while summarising older
-conversation messages. Earlier requirements remain in force unless later human
-feedback explicitly supersedes them. Explicit human revision requirements can
-override the plan boundary.
-
-Initial implementer messages include relevant paths and concise prerequisite
-handoffs. Follow-ups identify the current revision and supply the latest reviewer
-findings. Reviewer messages supply the current revision's diff, implementation
-summary and validation results. Both roles inspect current files rather than
-assuming earlier reads remain accurate. Reviewers reassess changes independently
-of their earlier verdicts. Reviewer tools exclude `edit`, `write`, and `bash`.
-
-## Git, review, and persistence
-
-Todos run sequentially in the current working tree. In Git repositories,
-before/after snapshots use a temporary index and include tracked and untracked
-non-ignored files without changing the real index or worktree. Outside Git,
-execution still works but per-todo diffs are unavailable.
-
-`/workflow execute N` forces execution from later pending todo `N`. Any
-unfinished earlier todos are persisted as `completed-manually`, the active
-implementer or reviewer is terminated, and execution starts at `N` after
-subprocess cleanup. This is intended for changes made directly by the user;
-manually completed todos remain visible to later subagents but have no generated
-implementation handoff.
-
-A reviewer returns `approve`, `request_changes`, or `escalate`. Requested changes
-receive an automatic revision while the configured `max-review-cycles` allowance
-remains; otherwise execution pauses at the human checkpoint. The default of two
-cycles allows one automatic revision after the initial review. Human feedback
-starts a fresh allowance.
-
-Every acceptance checkpoint summary includes the chronological history for that
-todo: human feedback followed by the implementer and reviewer response for each
-revision, plus the files changed in each revision. This history is retained
-across session restarts, so later feedback rounds do not hide earlier summaries.
-
-Each reviewer invocation supplies the current automatic revision's diff; earlier
-diffs remain historical context in its conversation. At human
-acceptance, Inspect todo diff and `/workflow diff` show the net Git diff since
-the previous human checkpoint. The first checkpoint starts at the todo's initial
-baseline; human feedback starts a new checkpoint before the next implementer
-runs. The human therefore sees changes from every automatic implement/review
-cycle since they last reviewed or supplied feedback. These checkpoint diffs are
-persisted, and older sessions reconstruct them from their retained tree
-snapshots when possible.
-
-Versioned session entries persist todos, primary skills, chronological revision
-summaries, model records, review findings, pending human approval, manual
-completion state, role-session references and execution checkpoints.
-
-### Storage, interruption and cleanup
-
-Role transcripts are private files under
-`<agent-dir>/workflow/sessions/<workflow-id>/`, normally within `~/.pi/agent/`.
-The managed directory records its parent-session ownership. A workflow-wide lease
-prevents concurrent workers from writing the same conversations.
-
-Orderly quit or reload stops and awaits the active subprocess, preserving
-unfinished conversations. On restart, in-flight todos are marked `interrupted`;
-use `/workflow execute` or `/workflow resume` to continue explicitly. A completed
-implementation can proceed directly to review. An interrupted implementer
-reconciles existing edits, and its diff retains the original pre-invocation
-baseline. Files remain in the working tree; stopping a workflow does not undo
-changes.
-
-After an abrupt parent exit, a surviving worker blocks resumption and cleanup
-until it exits. Stale leases can be reclaimed once both recorded processes have
-exited. An interruption during lock acquisition or child launch requires manual
-inspection of the lock path reported in the error before removing that lock.
-
-Approval, manual completion and abort delete the finished todo's role transcripts.
-Clearing or replacing a plan deletes that workflow's transcripts after workers
-stop. Summaries, feedback and cached diffs remain in retained parent-session
-entries; small ownership metadata files remain in the managed directory.
-Missing or invalid established transcripts cause an error rather than silently
-starting an empty conversation. Clear the workflow and submit a new plan to
-recover.
-
-Resumption supports linear parent-session history. Navigating to a divergent
-history or forking the parent requires a new plan. The extension preserves the
-other history's transcripts and refuses to reuse or delete them from the new
-history.
-
-## Tests
+Agents run on the host with the invoking user's permissions. Implementers have
+normal filesystem and Bash access. The bash-policy extension denies selected
+textual forms of high-risk commands; its deterministic matching provides a
+command guardrail. Review consequential commands because accepted commands can
+still affect the host.
 
 Run `npm test` in the extension directory. Tests use deterministic subprocess
-peers and temporary workspaces. When a Node-based Pi installation is available on
-`PATH`, session-format and compaction checks also run against its real SDK without
-calling a provider.
-
-Real-model isolation and conversational-continuity tests are opt-in:
+peers and temporary Git workspaces. Real Pi SDK session and compaction checks run
+when the installed SDK is available. Real-model tests are opt-in and incur usage:
 
 ```sh
 PI_WORKFLOW_E2E=1 PI_WORKFLOW_E2E_MODEL=provider/model npm test
 ```
-
-These tests use configured credentials and incur model usage.
-
-## Security
-
-Repository-controlled planner prompts, roles, and skills are instructions and
-may include executable helpers. Project content is loaded only for trusted
-projects. Review shared Markdown before use. Implementers have normal write and
-shell tools; reviewers are hard-limited to read/search tools.

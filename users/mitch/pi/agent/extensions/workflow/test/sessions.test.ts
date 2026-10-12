@@ -26,7 +26,7 @@ test("sessions are private, reused by role, and isolated between todos", () => {
 		assert.equal(first.hasHistory, false);
 		appendFileSync(first.session.file, '{"type":"message","message":{"role":"user","content":"First assignment"}}\n');
 		assert.deepEqual(f.store.prepare(f.state, f.state.todos[0], "implementer"), { session: first.session, hasHistory: true });
-		assert.notEqual(f.store.prepare(f.state, f.state.todos[0], "reviewer").session.file, first.session.file);
+		assert.notEqual(f.store.prepare(f.state, f.state.todos[0], "code-reviewer").session.file, first.session.file);
 		assert.notEqual(f.store.prepare(f.state, f.state.todos[1], "implementer").session.file, first.session.file);
 		assert.equal(statSync(first.session.file).mode & 0o777, 0o600);
 		lease.release();
@@ -148,7 +148,7 @@ test("todo cleanup retains other todos and recorded revision summaries", () => {
 	try {
 		const lease = f.store.acquire(f.state);
 		const first = f.store.prepare(f.state, f.state.todos[0], "implementer").session.file;
-		const second = f.store.prepare(f.state, f.state.todos[1], "reviewer").session.file;
+		const second = f.store.prepare(f.state, f.state.todos[1], "code-reviewer").session.file;
 		f.state.todos[0].revisions = [{ humanFeedback: "Keep the fix.", changedFiles: ["one.ts"] }];
 		f.store.deleteTodo(f.state, f.state.todos[0]);
 		assert.equal(existsSync(first), false);

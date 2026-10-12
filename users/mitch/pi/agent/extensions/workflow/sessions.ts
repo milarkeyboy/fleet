@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { WorkflowRole, WorkflowRoleSession, WorkflowState, WorkflowTodo } from "./state.ts";
+import { WORKFLOW_ROLES, type WorkflowRole, type WorkflowRoleSession, type WorkflowState, type WorkflowTodo } from "./state.ts";
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -114,8 +114,8 @@ export class WorkflowSessionStore {
 
 	private sessionPath(state: WorkflowState, todo: WorkflowTodo, role: WorkflowRole, ref: WorkflowRoleSession): string {
 		const dir = this.ownedDirectory(state);
-		if (!Number.isInteger(todo.step) || todo.step < 1 || !UUID.test(ref.id)) throw new Error("Invalid workflow session reference.");
-		const expected = path.join(dir, `todo-${todo.step}-${role}-${ref.id}.jsonl`);
+		if (!UUID.test(todo.id) || !UUID.test(ref.id)) throw new Error("Invalid workflow session reference.");
+		const expected = path.join(dir, `todo-${todo.id}-${role}-${ref.id}.jsonl`);
 		if (ref.file !== expected) throw new Error("Workflow session reference is outside its owned path.");
 		return expected;
 	}
@@ -126,7 +126,7 @@ export class WorkflowSessionStore {
 		let ref = todo.sessions?.[role];
 		if (!ref) {
 			const id = randomUUID();
-			ref = { id, file: path.join(dir, `todo-${todo.step}-${role}-${id}.jsonl`) };
+			ref = { id, file: path.join(dir, `todo-${todo.id}-${role}-${id}.jsonl`) };
 			// Pi's documented session header lets --session open a private file with the correct cwd.
 			writeFileSync(ref.file, `${JSON.stringify({ type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd: this.cwd })}\n`, { flag: "wx", mode: 0o600 });
 			(todo.sessions ??= {})[role] = ref;
@@ -146,7 +146,7 @@ export class WorkflowSessionStore {
 
 	/** Call while holding the lease; summaries remain in workflow state after transcripts are deleted. */
 	deleteTodo(state: WorkflowState, todo: WorkflowTodo): void {
-		for (const role of ["implementer", "reviewer"] as const) {
+		for (const role of WORKFLOW_ROLES) {
 			const ref = todo.sessions?.[role];
 			if (!ref) continue;
 			const file = this.sessionPath(state, todo, role, ref);
@@ -163,7 +163,7 @@ export class WorkflowSessionStore {
 		this.ownedDirectory(state);
 		for (const file of readdirSync(dir)) {
 			if (file === "owner.json" || file === "run.lock") continue;
-			if (!/^todo-\d+-(implementer|reviewer)-[a-f0-9-]+\.jsonl$/.test(file) && !/^run\.lock\.[a-f0-9-]+\.tmp$/.test(file)) throw new Error(`Unexpected file in workflow session directory: ${file}`);
+			if (!/^todo-[a-f0-9-]+-(implementer|design-reviewer|code-reviewer)-[a-f0-9-]+\.jsonl$/.test(file) && !/^run\.lock\.[a-f0-9-]+\.tmp$/.test(file)) throw new Error(`Unexpected file in workflow session directory: ${file}`);
 			regularFile(path.join(dir, file));
 		}
 		// Keep the marker and lease until the caller has finished persisting the transition.

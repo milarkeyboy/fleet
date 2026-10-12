@@ -1,0 +1,17 @@
+@startuml
+title Todo: main path
+hide empty description
+top to bottom direction
+
+state "Human edits design" as Design
+state "Design review" as DesignReview
+state "Implementation" as Implementation
+state "Code review" as CodeReview
+
+[*] --> Design
+Design --> DesignReview : Review changes
+DesignReview --> Implementation : Human accepts design
+Design --> Implementation : Empty diff; human confirms
+Implementation --> CodeReview
+CodeReview --> [*] : Human accepts code
+@enduml

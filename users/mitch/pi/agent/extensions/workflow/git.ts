@@ -48,6 +48,13 @@ export async function snapshotWorktree(cwd: string): Promise<string | undefined>
 	}
 }
 
+/** Execution depends on comparable phase snapshots, including in empty repositories. */
+export async function requireWorktreeSnapshot(cwd: string): Promise<string> {
+	const tree = await snapshotWorktree(cwd);
+	if (!tree) throw new Error("Workflow execution requires a Git working tree.");
+	return tree;
+}
+
 export interface WorktreeDiff {
 	changedFiles: string[];
 	preview: string;

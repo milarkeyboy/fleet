@@ -1,3 +1,4 @@
+// Portable role discovery, scaffolding and Agent Skill precedence.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -21,14 +22,13 @@ test("bundled shared Markdown contains only plain workflow prompts", async () =>
 	const root = bundledContentRoot();
 	const files = listMarkdownFiles(root).map((file) => path.relative(root, file).replaceAll(path.sep, "/")).sort();
 
-	assert.deepEqual(files, ["planner.md", "roles/implementer.md", "roles/reviewer.md"]);
+	assert.deepEqual(files, ["planner.md", "roles/code-reviewer.md", "roles/design-reviewer.md", "roles/implementer.md"]);
 	for (const file of files) {
 		const markdown = await readFile(path.join(root, file), "utf8");
 		assert.equal(markdown.startsWith("---\n"), false, `${file} must be a plain Markdown prompt`);
 	}
 	const planner = await readFile(path.join(root, "planner.md"), "utf8");
 	assert.match(planner, /single increment/);
-	assert.match(planner, /different, isolated workers/);
 	assert.doesNotMatch(planner, /workflow_submit_plan/);
 });
 
@@ -39,7 +39,7 @@ test("scaffolds only workflow role prompts", async () => {
 		await scaffoldWorkflowRoles(agents);
 		assert.deepEqual(
 			listMarkdownFiles(agents).map((file) => path.relative(agents, file).replaceAll(path.sep, "/")),
-			["workflow/roles/implementer.md", "workflow/roles/reviewer.md"],
+			["workflow/roles/code-reviewer.md", "workflow/roles/design-reviewer.md", "workflow/roles/implementer.md"],
 		);
 		assert.equal(existsSync(path.join(agents, "skills")), false);
 	} finally {
@@ -68,7 +68,7 @@ test("discovers user skills and applies trusted project precedence", async () =>
 		assert.match(content.planner, /^# Workflow Planner Guidance/);
 		assert.equal(content.roles.implementer.source, "project");
 		assert.match(content.roles.implementer.body, /^# Project implementer/);
-		assert.equal(content.roles.reviewer.source, "bundled");
+		assert.equal(content.roles["code-reviewer"].source, "bundled");
 		assert.equal(content.skills.cpp.source, "user");
 		assert.equal(content.skills.python.source, "user");
 		assert.equal(content.skills.rust.source, "project");
