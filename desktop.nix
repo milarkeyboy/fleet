@@ -6,7 +6,6 @@
 
     ./modules/base.nix
     ./modules/daw.nix
-    ./modules/element.nix
     ./modules/workstation.nix
     ./modules/desktop-environment/hyprland.nix
     ./modules/coding.nix

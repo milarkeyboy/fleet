@@ -60,24 +60,6 @@
         "type": "github"
       }
     },
-    "element": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1791456755,
-        "narHash": "sha256-3GQHVv5mkfbNDcZka+RpB3bi3P30lxJQU/LrVa10PSY=",
-        "ref": "refs/heads/main",
-        "rev": "618e1ac094839be64849bcadc145363702527a4f",
-        "revCount": 4336,
-        "submodules": true,
-        "type": "git",
-        "url": "https://github.com/kushview/element"
-      },
-      "original": {
-        "submodules": true,
-        "type": "git",
-        "url": "https://github.com/kushview/element"
-      }
-    },
     "flake-parts": {
       "inputs": {
         "nixpkgs-lib": "nixpkgs-lib"
@@ -304,7 +286,6 @@
     },
     "root": {
       "inputs": {
-        "element": "element",
         "home-manager": "home-manager",
         "musnix": "musnix",
         "nixpkgs": "nixpkgs_2",

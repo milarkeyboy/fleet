@@ -6,12 +6,6 @@
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
     pi.url = "github:lukasl-dev/pi.nix";
 
-    # Include Element's CLAP submodule; flake.lock pins the source revision.
-    element = {
-      url = "git+https://github.com/kushview/element?submodules=1";
-      flake = false;
-    };
-
     home-manager = {
       url = "github:nix-community/home-manager/release-26.05";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -76,10 +70,6 @@
         laptop = mkHost "laptop";
         "work-laptop" = mkHost "work-laptop";
         server = mkHost "server";
-      };
-
-      packages.${system}.element = nixpkgs.legacyPackages.${system}.callPackage ./packages/element.nix {
-        inherit inputs;
       };
 
       formatter.${system} = nixpkgs.legacyPackages.${system}.nixfmt-rfc-style;

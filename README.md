@@ -138,5 +138,3 @@ it. Use the original download rather than manually launching the temporary
     - Constrain agents such that they cannot edit Markdown.
     - Manually edit the READMEs of all extensions, and get an agent to trim off
       the unnecessary functionality.
-- Add custom Element Lua plugin for mapping MIDI CC messages from a MIDI
-  controller to multiple CC messages to plugins per MIDI PC value.
