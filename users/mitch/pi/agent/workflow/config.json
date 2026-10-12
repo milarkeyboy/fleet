@@ -1,7 +1,8 @@
 {
   "agents": {
     "implementer": "implementer",
-    "reviewer": "reviewer"
+    "design-reviewer": "design-reviewer",
+    "code-reviewer": "reviewer"
   },
   "max-review-cycles": 4
 }

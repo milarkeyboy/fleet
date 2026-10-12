@@ -1,13 +1,18 @@
 import { randomUUID } from "node:crypto";
 
-export const WORKFLOW_ENTRY_TYPE = "workflow-state-v8";
-export const LEGACY_WORKFLOW_ENTRY_TYPES = new Set([1, 2, 3, 4, 5, 6, 7].map((version) => `workflow-state-v${version}`));
-export type WorkflowRole = "implementer" | "reviewer";
+export const WORKFLOW_ENTRY_TYPE = "workflow-state-v9";
+export const LEGACY_WORKFLOW_ENTRY_TYPES = new Set([1, 2, 3, 4, 5, 6, 7, 8].map((version) => `workflow-state-v${version}`));
+export const WORKFLOW_ROLES = ["implementer", "design-reviewer", "code-reviewer"] as const;
+export type WorkflowRole = typeof WORKFLOW_ROLES[number];
 
 export type WorkflowSkillSource = "plan" | "user";
 
 export type WorkflowTodoStatus =
 	| "pending"
+	| "design-editing"
+	| "design-reviewing"
+	| "awaiting-design"
+	| "awaiting-change"
 	| "implementing"
 	| "reviewing"
 	| "revising"
@@ -18,12 +23,18 @@ export type WorkflowTodoStatus =
 	| "interrupted"
 	| "aborted";
 
+export interface WorkflowBlocker {
+	kind: "design" | "plan";
+	reason: string;
+}
+
 export interface ImplementationResult {
 	status: "completed" | "blocked";
 	summary: string;
 	filesChanged: string[];
 	tests: string[];
 	notes?: string;
+	blocker?: WorkflowBlocker;
 	model?: string;
 	thinkingLevel?: string;
 }
@@ -32,6 +43,7 @@ export interface ReviewResult {
 	verdict: "approve" | "request_changes" | "escalate";
 	summary: string;
 	findings: string[];
+	blocker?: WorkflowBlocker;
 	model?: string;
 	thinkingLevel?: string;
 }
@@ -41,6 +53,8 @@ export interface ReviewResult {
  * diff. Keeping these records ordered preserves the conversation across rounds.
  */
 export interface WorkflowRevision {
+	planRevision?: number;
+	designIndex?: number;
 	implementation?: ImplementationResult;
 	review?: ReviewResult;
 	humanFeedback?: string;
@@ -62,7 +76,33 @@ export interface WorkflowCheckpoint {
 	revisionIndex: number;
 }
 
+/** Human edits and read-only reviews remain separate from implementation history. */
+export interface WorkflowDesignRevision {
+	planRevision: number;
+	baselineTree: string;
+	resultTree?: string;
+	changedFiles: string[];
+	diffPreview?: string;
+	reviews: Array<{ tree: string; feedback?: string; review: ReviewResult }>;
+	pendingFeedback?: string;
+	accepted?: boolean;
+}
+
+export interface WorkflowPlanTodo {
+	id: string;
+	title: string;
+	instructions: string[];
+	primarySkill?: string;
+}
+
+export interface WorkflowPlanAmendment {
+	baseRevision: number;
+	todos: WorkflowPlanTodo[];
+	affectedIds: string[];
+}
+
 export interface WorkflowTodo {
+	id: string;
 	step: number;
 	title: string;
 	instructions: string[];
@@ -74,14 +114,23 @@ export interface WorkflowTodo {
 	attempts: number;
 	automaticReviewCycles: number;
 	revisions: WorkflowRevision[];
+	designs: WorkflowDesignRevision[];
+	/** Cleared explicitly when design or scope needs renewed acceptance. */
+	designAccepted?: number;
+	/** Earlier feedback remains historical after an affected plan amendment. */
+	feedbackStart: number;
 	sessions?: Partial<Record<WorkflowRole, string>>;
 	checkpoint?: WorkflowCheckpoint;
 	error?: string;
 }
 
 export interface WorkflowState {
-	version: 8;
+	version: 9;
 	id: string;
+	planRevision: number;
+	planHistory: Array<{ revision: number; todos: WorkflowPlanTodo[]; affectedIds: string[] }>;
+	amending: boolean;
+	pendingAmendment?: WorkflowPlanAmendment;
 	ownerSessionId?: string;
 	/** Persisted before destructive cleanup so a restart cannot resume discarded work. */
 	discarding?: boolean;
@@ -99,8 +148,11 @@ export interface WorkflowState {
 export function createWorkflowState(): WorkflowState {
 	const now = Date.now();
 	return {
-		version: 8,
+		version: 9,
 		id: randomUUID(),
+		planRevision: 1,
+		planHistory: [],
+		amending: false,
 		planning: false,
 		executing: false,
 		paused: false,
@@ -159,7 +211,7 @@ export function humanCheckpointRevision(todo: WorkflowTodo): WorkflowRevision | 
 	const latest = latestResultRevision(todo);
 	if (!latest) return undefined;
 	const latestIndex = todo.revisions.lastIndexOf(latest);
-	const revisions = todo.revisions.slice(0, latestIndex + 1);
+	const revisions = todo.revisions.slice(0, latestIndex + 1).filter((revision) => revision.designIndex === latest.designIndex);
 	const checkpoint = [...revisions].reverse().find((revision) => revision.humanFeedback)
 		?? revisions.find((revision) => revision.baselineTree);
 	return {
@@ -193,32 +245,43 @@ export function cloneState(state: WorkflowState): WorkflowState {
 
 export function restoreState(value: unknown): WorkflowState | undefined {
 	if (!value || typeof value !== "object") return undefined;
-	const candidate = value as Record<string, unknown>;
-	if (candidate.version !== 8 || typeof candidate.id !== "string" || !/^[a-f0-9-]{36}$/.test(candidate.id) || !Array.isArray(candidate.todos)) return undefined;
+	const candidate = value as WorkflowState;
+	const uuid = (id: unknown) => typeof id === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id);
+	if (candidate.version !== 9 || !uuid(candidate.id) || !Array.isArray(candidate.todos)) return undefined;
+	if (!Number.isSafeInteger(candidate.planRevision) || candidate.planRevision < 1 || !Array.isArray(candidate.planHistory) || typeof candidate.amending !== "boolean") return undefined;
 	if (candidate.ownerSessionId !== undefined && typeof candidate.ownerSessionId !== "string") return undefined;
-	const validTodos = candidate.todos.every((todo) => {
-		if (!todo || typeof todo !== "object") return false;
-		const item = todo as Record<string, unknown>;
+	const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === "string");
+	const planTodos = (value: unknown): value is WorkflowPlanTodo[] => Array.isArray(value) && value.every((item) => item && uuid(item.id) && typeof item.title === "string" && strings(item.instructions));
+	if (candidate.planHistory.some((entry) => !entry || !Number.isInteger(entry.revision) || !planTodos(entry.todos) || !strings(entry.affectedIds))) return undefined;
+	const validTodos = candidate.todos.every((item, index) => {
+		if (!item || !uuid(item.id) || item.step !== index + 1 || typeof item.title !== "string"
+			|| !Array.isArray(item.instructions) || !item.instructions.every((instruction) => typeof instruction === "string")
+			|| !Array.isArray(item.revisions) || !Array.isArray(item.designs) || !Number.isInteger(item.feedbackStart)
+			|| item.feedbackStart < 0 || item.feedbackStart > item.revisions.length) return false;
+		if (item.revisions.some((revision) => !revision || !strings(revision.changedFiles))) return false;
+		if (item.designs.some((design) => !design || !Number.isInteger(design.planRevision) || typeof design.baselineTree !== "string"
+			|| !Array.isArray(design.reviews) || !strings(design.changedFiles)
+			|| design.reviews.some((entry) => !entry || typeof entry.tree !== "string" || !entry.review || !strings(entry.review.findings)))) return false;
+		if (item.designAccepted !== undefined && (!Number.isInteger(item.designAccepted) || !item.designs[item.designAccepted]?.accepted)) return false;
 		if (item.sessions !== undefined) {
 			if (!item.sessions || typeof item.sessions !== "object" || Array.isArray(item.sessions)) return false;
 			for (const [role, session] of Object.entries(item.sessions)) {
-				if (!["implementer", "reviewer"].includes(role) || typeof session !== "string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(session)) return false;
+				if (!WORKFLOW_ROLES.includes(role as WorkflowRole) || !uuid(session)) return false;
 			}
 		}
 		if (item.checkpoint !== undefined) {
-			const checkpoint = item.checkpoint as WorkflowCheckpoint;
-			if (!checkpoint || !["implementer", "reviewer"].includes(checkpoint.role)
-				|| !Number.isInteger(checkpoint.revisionIndex) || checkpoint.revisionIndex < 0
-				|| !Array.isArray(item.revisions) || checkpoint.revisionIndex >= item.revisions.length) return false;
+			const checkpoint = item.checkpoint;
+			const records = checkpoint?.role === "design-reviewer" ? item.designs : item.revisions;
+			if (!checkpoint || !WORKFLOW_ROLES.includes(checkpoint.role) || !Number.isInteger(checkpoint.revisionIndex)
+				|| checkpoint.revisionIndex < 0 || checkpoint.revisionIndex >= records.length) return false;
 		}
-		return Number.isInteger(item.step) && Number(item.step) > 0
-			&& typeof item.title === "string"
-			&& Array.isArray(item.instructions)
-			&& item.instructions.every((instruction) => typeof instruction === "string")
-			&& Array.isArray(item.revisions);
+		return true;
 	});
-	if (!validTodos) return undefined;
-	return cloneState({ ...createWorkflowState(), ...candidate, version: 8 } as WorkflowState);
+	if (!validTodos || new Set(candidate.todos.map((todo) => todo.id)).size !== candidate.todos.length) return undefined;
+	if (candidate.pendingAmendment !== undefined && (!candidate.pendingAmendment || !candidate.amending || !planTodos(candidate.pendingAmendment.todos)
+		|| !strings(candidate.pendingAmendment.affectedIds) || !candidate.pendingAmendment.todos.length || candidate.pendingAmendment.todos.length > 40
+		|| candidate.pendingAmendment.baseRevision !== candidate.planRevision)) return undefined;
+	return cloneState(candidate);
 }
 
 interface WorkflowSessionEntry {
@@ -237,7 +300,7 @@ export function restoreWorkflowBranch(entries: WorkflowSessionEntry[], branch: W
 	const fresh = () => ({ ...createWorkflowState(), ownerSessionId });
 	if (!selected) return latest ? { state: fresh(), replanReason: "Workflow history diverged. Submit a new plan; other histories' role sessions are unchanged." } : { state: fresh() };
 	if (selected.id !== latest?.id) return { state: fresh(), replanReason: "Workflow history diverged. Submit a new plan; other histories' role sessions are unchanged." };
-	if (selected.customType !== WORKFLOW_ENTRY_TYPE) return { state: fresh(), replanReason: "This workflow uses an older state format. Submit a new plan to use conversation handles. Historical artefacts have been retained." };
+	if (selected.customType !== WORKFLOW_ENTRY_TYPE) return { state: fresh(), replanReason: "This workflow uses an older state format. Submit a new plan to use design checkpoints and conversation handles. Historical artefacts have been retained." };
 	const state = restoreState(selected.data);
 	if (!state) return { state: fresh(), replanReason: "Workflow state is invalid. Submit a new plan." };
 	if (state.ownerSessionId && state.ownerSessionId !== ownerSessionId) return { state: fresh(), replanReason: "This workflow belongs to another parent session. Submit a new plan; its role sessions are unchanged." };
@@ -249,7 +312,7 @@ export function restoreWorkflowBranch(entries: WorkflowSessionEntry[], branch: W
 export function markWorkflowInterrupted(state: WorkflowState): void {
 	state.executing = false;
 	for (const todo of state.todos) {
-		if (["implementing", "reviewing", "revising"].includes(todo.status)) {
+		if (["implementing", "reviewing", "revising", "design-reviewing"].includes(todo.status)) {
 			todo.status = "interrupted";
 			todo.error = "Execution was interrupted. Use /workflow execute or /workflow resume to continue.";
 		}

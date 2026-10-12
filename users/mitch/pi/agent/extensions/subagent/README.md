@@ -192,7 +192,7 @@ Node-based Pi API and deterministic subprocess peers without model requests.
 The loader recognises npm/Nix installations and `PI_PACKAGE_DIR`.
 Workflow's real-model tests remain opt-in.
 
-The lifecycle API and workflow state version 8 replace file-based caller
-references. Existing workflows need a new plan; earlier transcripts remain
-untouched. Ad-hoc runs made before durable handles were introduced cannot be
+The lifecycle API uses opaque conversation handles. Workflow state version 9
+also records human design checkpoints and plan amendments. Existing workflows
+need a new plan; earlier transcripts remain untouched. Ad-hoc runs made before durable handles were introduced cannot be
 reconstructed retrospectively.

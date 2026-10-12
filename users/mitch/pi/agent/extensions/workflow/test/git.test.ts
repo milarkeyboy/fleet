@@ -41,6 +41,7 @@ test("reconstructs uncached diffs between human checkpoints", { skip: !hasGit },
 		await writeFile(path.join(cwd, "two.ts"), "two\n");
 		const firstCheckpoint = await snapshotWorktree(cwd);
 		const todo: WorkflowTodo = {
+			id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0,
 			step: 1,
 			title: "Task",
 			instructions: ["Complete it."],

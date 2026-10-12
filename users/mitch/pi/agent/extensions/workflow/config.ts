@@ -3,12 +3,15 @@ import path from "node:path";
 import { discoverAgents, requireAgent, type AgentDefinition } from "../subagent/agents.ts";
 import { createSubprocessModelRegistry, requireExecutableAgents } from "../subagent/models.ts";
 
+import { WORKFLOW_ROLES, type WorkflowRole } from "./state.ts";
+
 export const DEFAULT_MAX_REVIEW_CYCLES = 2;
+const DEFAULT_AGENTS: Record<WorkflowRole, string> = { implementer: "implementer", "design-reviewer": "design-reviewer", "code-reviewer": "reviewer" };
 export interface WorkflowConfig {
-	agents?: Partial<Record<"implementer" | "reviewer", string>>;
+	agents?: Partial<Record<WorkflowRole, string>>;
 	"max-review-cycles"?: number;
 }
-export type CompleteWorkflowConfig = WorkflowConfig & Record<"implementer" | "reviewer", AgentDefinition>;
+export type CompleteWorkflowConfig = WorkflowConfig & Record<WorkflowRole, AgentDefinition>;
 
 export function workflowConfigPath(agentDir: string): string {
 	return path.join(agentDir, "workflow", "config.json");
@@ -23,14 +26,14 @@ export function parseWorkflowConfig(value: unknown): WorkflowConfig {
 	const parsed: WorkflowConfig = {};
 	if (config.agents !== undefined) {
 		if (!config.agents || typeof config.agents !== "object" || Array.isArray(config.agents)) {
-			throw new Error("Workflow agents must map implementer and reviewer roles to agent names.");
+			throw new Error("Workflow agents must map workflow roles to agent names.");
 		}
 		const agents = config.agents as Record<string, unknown>;
-		if (Object.keys(agents).some((role) => !["implementer", "reviewer"].includes(role))) {
-			throw new Error("Workflow agents supports implementer and reviewer roles only.");
+		if (Object.keys(agents).some((role) => !WORKFLOW_ROLES.includes(role as WorkflowRole))) {
+			throw new Error("Workflow agents supports implementer, design-reviewer and code-reviewer roles only.");
 		}
 		parsed.agents = {};
-		for (const role of ["implementer", "reviewer"] as const) {
+		for (const role of WORKFLOW_ROLES) {
 			const name = agents[role];
 			if (name === undefined) continue;
 			if (typeof name !== "string" || !name.trim()) throw new Error(`Workflow agents.${role} must be a non-empty agent name.`);
@@ -54,17 +57,18 @@ export async function loadWorkflowConfig(agentDir: string): Promise<WorkflowConf
 	}
 }
 
-export function resolveWorkflowAgents(agentDir: string, settings: WorkflowConfig = {}): Pick<CompleteWorkflowConfig, "implementer" | "reviewer"> {
+export function resolveWorkflowAgents(agentDir: string, settings: WorkflowConfig = {}): Record<WorkflowRole, AgentDefinition> {
 	const found = discoverAgents(agentDir);
-	const implementer = requireAgent(found, settings.agents?.implementer ?? "implementer");
-	const reviewer = requireAgent(found, settings.agents?.reviewer ?? "reviewer");
-	if (reviewer.tools.some((tool) => !["read", "grep", "find", "ls"].includes(tool))) {
-		throw new Error(`Workflow reviewer tools must remain read-only: read, grep, find, ls. Edit ${reviewer.filePath}.`);
-	}
-	return { implementer, reviewer };
+	return Object.fromEntries(WORKFLOW_ROLES.map((role) => {
+		const agent = requireAgent(found, settings.agents?.[role] ?? DEFAULT_AGENTS[role]);
+		if (role !== "implementer" && agent.tools.some((tool) => !["read", "grep", "find", "ls"].includes(tool))) {
+			throw new Error(`Workflow ${role} tools must remain read-only: read, grep, find, ls. Edit ${agent.filePath}.`);
+		}
+		return [role, agent];
+	})) as Record<WorkflowRole, AgentDefinition>;
 }
 
-/** Resolve and preflight both roles before allocating conversations or changing execution state. */
+/** Resolve and preflight all three roles before allocating conversations or changing execution state. */
 export async function loadWorkflowExecution(agentDir: string, signal?: AbortSignal): Promise<CompleteWorkflowConfig> {
 	const settings = await loadWorkflowConfig(agentDir);
 	const agents = resolveWorkflowAgents(agentDir, settings);
@@ -72,6 +76,6 @@ export async function loadWorkflowExecution(agentDir: string, signal?: AbortSign
 	return { ...settings, ...agents };
 }
 
-export function formatWorkflowModels(agents: Pick<CompleteWorkflowConfig, "implementer" | "reviewer">): string {
+export function formatWorkflowModels(agents: Record<WorkflowRole, AgentDefinition>): string {
 	return Object.entries(agents).map(([role, agent]) => `${role} → ${agent.name}: ${agent.model} (thinking: ${agent.thinkingLevel ?? "off"}) — ${agent.filePath}`).join("\n");
 }

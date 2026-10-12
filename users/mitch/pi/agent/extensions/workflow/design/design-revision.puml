@@ -1,0 +1,14 @@
+@startuml
+title Return to design
+
+actor Human
+participant "Implementer agent" as Implementer
+participant "Design review agent" as Reviewer
+
+Implementer --> Human : Design blocker; work preserved
+Human -> Implementer : Stop before editing
+Human -> Human : Edit design
+Human -> Reviewer : Request design review
+Reviewer --> Human : Findings
+Human -> Implementer : Accept revised design; resume
+@enduml

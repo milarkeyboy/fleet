@@ -27,7 +27,7 @@ test("role handles persist and remain isolated between roles and todos", () => {
 		assert.equal(first.hasHistory, false);
 		assert.equal(f.state.todos[0].sessions?.implementer, first.handle);
 		assert.deepEqual(f.store.prepare(f.state, f.state.todos[0], "implementer"), first);
-		assert.notEqual(f.store.prepare(f.state, f.state.todos[0], "reviewer").handle, first.handle);
+		assert.notEqual(f.store.prepare(f.state, f.state.todos[0], "code-reviewer").handle, first.handle);
 		assert.notEqual(f.store.prepare(f.state, f.state.todos[1], "implementer").handle, first.handle);
 	} finally { f.close(); }
 });
@@ -64,11 +64,11 @@ test("todo cleanup preserves other todos' handles", () => {
 	const f = fixture();
 	try {
 		f.store.prepare(f.state, f.state.todos[0], "implementer");
-		const second = f.store.prepare(f.state, f.state.todos[1], "reviewer");
+		const second = f.store.prepare(f.state, f.state.todos[1], "code-reviewer");
 		f.store.deleteTodo(f.state, f.state.todos[0]);
 		assert.equal(f.state.todos[0].sessions, undefined);
 		assert.equal(f.service.list(f.owner).length, 1);
-		assert.equal(f.state.todos[1].sessions?.reviewer, second.handle);
+		assert.equal(f.state.todos[1].sessions?.["code-reviewer"], second.handle);
 	} finally { f.close(); }
 });
 
