@@ -1,3 +1,4 @@
+// Canonical plan creation, formatting and planning instructions.
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { MarkdownContent } from "../content.ts";
@@ -59,7 +60,7 @@ test("typed submission replaces the prior plan and resets orchestration selectio
 	state.executing = true;
 	state.paused = true;
 	state.currentStep = 9;
-	state.todos = [{ step: 9, title: "Old", instructions: ["Discard this."], status: "approved", attempts: 1, automaticReviewCycles: 1, revisions: [{ changedFiles: ["old.ts"] }] }];
+	state.todos = [{ id: "00000000-0000-0000-0000-000000000009", designs: [], feedbackStart: 0, step: 9, title: "Old", instructions: ["Discard this."], status: "approved", attempts: 1, automaticReviewCycles: 1, revisions: [{ changedFiles: ["old.ts"] }] }];
 	const todos = submitWorkflowPlan(state, submitted, skills);
 	assert.equal(state.todos, todos);
 	assert.equal(state.currentStep, 1);
@@ -101,4 +102,12 @@ test("planning instructions require typed submission and list skills", () => {
 	assert.match(instructions, /Use exact skill names/);
 	assert.match(instructions, /rust: Rust development/);
 	assert.doesNotMatch(instructions, /Produce the final plan under exactly/);
+});
+
+test("custom planner guidance retains lifecycle and context-isolation instructions", () => {
+	const prompt = appendPlanningInstructions("Base prompt", "Be pragmatic.");
+	assert.match(prompt, /Be pragmatic/);
+	assert.match(prompt, /Every todo begins with human-owned design editing and acceptance/);
+	assert.match(prompt, /Subagents do not inherit the planning conversation/);
+	assert.match(prompt, /Summarise external requirements in each todo's instructions/);
 });

@@ -6,13 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { resolveWorkflowAgents } from "../config.ts";
-import { writeTestAgent } from "../../subagent/test/agents.ts";
+import { writeWorkflowTestAgents } from "./agents.ts";
 import { WorkflowSessionStore } from "../sessions.ts";
 import { shouldAutomaticallyRevise, WorkflowOrchestrator } from "../orchestrator.ts";
 import { completeTodosManuallyBefore, createWorkflowState, cumulativeRevision, currentTodo, humanCheckpointRevision, isWorkflowComplete, restoreState, type WorkflowTodo } from "../state.ts";
 
 function todo(cycles: number): WorkflowTodo {
-	return { step: 1, title: "Task", instructions: ["Complete it."], primarySkill: "python", status: "reviewing", attempts: cycles, automaticReviewCycles: cycles, revisions: [{ changedFiles: [], review: { verdict: "request_changes", summary: "fix", findings: ["issue"] } }] };
+	return { id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1, title: "Task", instructions: ["Complete it."], primarySkill: "python", status: "reviewing", attempts: cycles, automaticReviewCycles: cycles, revisions: [{ changedFiles: [], review: { verdict: "request_changes", summary: "fix", findings: ["issue"] } }] };
 }
 
 test("review retries stop after two implement/review cycles", () => {
@@ -23,7 +23,7 @@ test("review retries stop after two implement/review cycles", () => {
 test("restores current native workflow state", () => {
 	const state = createWorkflowState();
 	state.goal = "Goal";
-	state.todos = [{ step: 1, title: "Task", instructions: ["Keep every detail."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] }];
+	state.todos = [{ id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1, title: "Task", instructions: ["Keep every detail."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] }];
 	const restored = restoreState(JSON.parse(JSON.stringify(state)));
 	assert.equal(restored?.goal, "Goal");
 	assert.deepEqual(restored?.todos[0].instructions, ["Keep every detail."]);
@@ -43,9 +43,9 @@ test("persists separate role sessions and an execution checkpoint", () => {
 	const current = todo(1);
 	current.sessions = {
 		implementer: "11111111-1111-4111-8111-111111111111",
-		reviewer: "22222222-2222-4222-8222-222222222222",
+		"code-reviewer": "22222222-2222-4222-8222-222222222222",
 	};
-	current.checkpoint = { role: "reviewer", revisionIndex: 0 };
+	current.checkpoint = { role: "code-reviewer", revisionIndex: 0 };
 	state.todos = [current];
 	assert.deepEqual(restoreState(JSON.parse(JSON.stringify(state))), state);
 });
@@ -59,16 +59,16 @@ test("rejects malformed conversation handles", () => {
 
 test("rejects title-only legacy workflow states that cannot recover instructions", () => {
 	for (const version of [1, 2, 3, 4]) {
-		assert.equal(restoreState({ version, todos: [{ step: 1, text: "Lost details" }] }), undefined);
+		assert.equal(restoreState({ version, todos: [{ id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1, text: "Lost details" }] }), undefined);
 	}
-	assert.equal(restoreState({ version: 5, todos: [{ step: 1, title: "Task", revisions: [] }] }), undefined);
+	assert.equal(restoreState({ version: 5, todos: [{ id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1, title: "Task", revisions: [] }] }), undefined);
 });
 
 test("does not restore legacy revision records", () => {
 	const restored = restoreState({
 		version: 3,
 		todos: [{
-			step: 1,
+			id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1,
 			text: "Task",
 			status: "awaiting-user",
 			attempts: 2,
@@ -84,7 +84,7 @@ test("does not restore legacy revision records", () => {
 
 test("human checkpoint results begin at the latest human feedback", () => {
 	const todo: WorkflowTodo = {
-		step: 1,
+		id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1,
 		title: "Task",
 		instructions: ["Complete it."],
 		status: "awaiting-user",
@@ -107,7 +107,7 @@ test("human checkpoint results begin at the latest human feedback", () => {
 
 test("initial human checkpoint results begin at the todo baseline", () => {
 	const todo: WorkflowTodo = {
-		step: 1,
+		id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1,
 		title: "Task",
 		instructions: ["Complete it."],
 		status: "awaiting-user",
@@ -126,7 +126,7 @@ test("cumulative todo results retain files changed across revisions", () => {
 	const restored = restoreState({
 		...createWorkflowState(),
 		todos: [{
-			step: 1,
+			id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1,
 			title: "Task",
 			instructions: ["Complete it."],
 			status: "awaiting-user",
@@ -150,9 +150,9 @@ test("manual completion persists, advances the current todo, and counts toward c
 	const state = createWorkflowState();
 	state.currentStep = 1;
 	state.todos = [
-		{ step: 1, title: "Manual change", instructions: ["Complete it."], status: "awaiting-user", attempts: 1, automaticReviewCycles: 1, revisions: [] },
-		{ step: 2, title: "Skipped change", instructions: ["Complete it."], status: "failed", attempts: 1, automaticReviewCycles: 1, revisions: [], error: "failed" },
-		{ step: 3, title: "Next change", instructions: ["Complete it."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] },
+		{ id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1, title: "Manual change", instructions: ["Complete it."], status: "awaiting-user", attempts: 1, automaticReviewCycles: 1, revisions: [] },
+		{ id: "00000000-0000-0000-0000-000000000002", designs: [], feedbackStart: 0, step: 2, title: "Skipped change", instructions: ["Complete it."], status: "failed", attempts: 1, automaticReviewCycles: 1, revisions: [], error: "failed" },
+		{ id: "00000000-0000-0000-0000-000000000003", designs: [], feedbackStart: 0, step: 3, title: "Next change", instructions: ["Complete it."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] },
 	];
 
 	const completed = completeTodosManuallyBefore(state, 3);
@@ -170,7 +170,7 @@ test("manual completion persists, advances the current todo, and counts toward c
 
 test("model preflight fails before workflow execution changes todo state", async () => {
 	const state = createWorkflowState();
-	state.todos = [{ step: 1, title: "Task", instructions: ["Complete it."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] }];
+	state.todos = [{ id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1, title: "Task", instructions: ["Complete it."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] }];
 	let contentLoaded = false;
 	const orchestrator = new WorkflowOrchestrator(state, {
 		persist() {},
@@ -180,7 +180,10 @@ test("model preflight fails before workflow execution changes todo state", async
 		sessions() { throw new Error("sessions should not load"); },
 	});
 
-	await assert.rejects(orchestrator.execute({ ui: { notify() {} } } as any), /not authenticated/);
+	const cwd = await mkdtemp(path.join(os.tmpdir(), "workflow-preflight-"));
+	execFileSync("git", ["init", "-q", cwd]);
+	try { await assert.rejects(orchestrator.execute({ cwd, ui: { notify() {} } } as any), /not authenticated/); }
+	finally { await rm(cwd, { recursive: true, force: true }); }
 	assert.equal(state.executing, false);
 	assert.equal(state.currentStep, undefined);
 	assert.equal(state.todos[0].status, "pending");
@@ -193,7 +196,7 @@ test("orchestration caches net diffs between human checkpoints", async () => {
 	try {
 		execFileSync("git", ["init", "-q", cwd]);
 		const state = createWorkflowState();
-		state.todos = [{ step: 1, title: "Task", instructions: ["Complete it."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] }];
+		state.todos = [{ id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1, title: "Task", instructions: ["Complete it."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] }];
 		let calls = 0;
 		const store = new WorkflowSessionStore(path.join(cwd, ".git", "workflow-sessions"), "parent", cwd);
 		const orchestrator = new WorkflowOrchestrator(state, {
@@ -208,8 +211,8 @@ test("orchestration caches net diffs between human checkpoints", async () => {
 			},
 			async models() {
 				const agentDir = path.join(cwd, ".git", "agent");
-				writeTestAgent(agentDir, "implementer");
-				writeTestAgent(agentDir, "reviewer");
+				writeWorkflowTestAgents(agentDir);
+
 				return resolveWorkflowAgents(agentDir);
 			},
 			sessions: () => store,
@@ -227,6 +230,8 @@ test("orchestration caches net diffs between human checkpoints", async () => {
 		const ctx = { cwd, signal: undefined, ui: { notify() {} } } as any;
 
 		await orchestrator.execute(ctx);
+		await orchestrator.reviewDesign(ctx);
+		await orchestrator.approveDesign(ctx);
 		assert.deepEqual(state.todos[0].revisions.at(-1)?.humanCheckpointChangedFiles?.sort(), ["one.ts", "two.ts"]);
 		assert.match(state.todos[0].revisions.at(-1)?.humanCheckpointDiffPreview ?? "", /one\.ts/);
 		assert.match(state.todos[0].revisions.at(-1)?.humanCheckpointDiffPreview ?? "", /two\.ts/);
@@ -245,10 +250,11 @@ test("orchestration caches net diffs between human checkpoints", async () => {
 test("forcing a later todo cancels the active run without recording a failure", async () => {
 	const cwd = await mkdtemp(path.join(os.tmpdir(), "workflow-force-"));
 	try {
+		execFileSync("git", ["init", "-q", cwd]);
 		const state = createWorkflowState();
 		state.todos = [
-			{ step: 1, title: "First task", instructions: ["Complete first."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] },
-			{ step: 2, title: "Second task", instructions: ["Complete second."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] },
+			{ id: "00000000-0000-0000-0000-000000000001", designs: [], feedbackStart: 0, step: 1, title: "First task", instructions: ["Complete first."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] },
+			{ id: "00000000-0000-0000-0000-000000000002", designs: [], feedbackStart: 0, step: 2, title: "Second task", instructions: ["Complete second."], status: "pending", attempts: 0, automaticReviewCycles: 0, revisions: [] },
 		];
 		const notifications: string[] = [];
 		let calls = 0;
@@ -266,8 +272,8 @@ test("forcing a later todo cancels the active run without recording a failure", 
 			},
 			async models() {
 				const agentDir = path.join(cwd, ".git", "agent");
-				writeTestAgent(agentDir, "implementer");
-				writeTestAgent(agentDir, "reviewer");
+				writeWorkflowTestAgents(agentDir);
+
 				return resolveWorkflowAgents(agentDir);
 			},
 			sessions: () => new WorkflowSessionStore(path.join(cwd, ".git", "workflow-sessions"), "parent", cwd),
@@ -289,16 +295,18 @@ test("forcing a later todo cancels the active run without recording a failure", 
 		});
 		const ctx = { cwd, signal: undefined, ui: { notify(message: string) { notifications.push(message); } } } as any;
 
-		const firstRun = orchestrator.execute(ctx);
+		await orchestrator.execute(ctx);
+		await orchestrator.reviewDesign(ctx);
+		const firstRun = orchestrator.approveDesign(ctx);
 		await active;
 		await orchestrator.prepareFrom(ctx, 2);
 		await orchestrator.execute(ctx);
 		await firstRun;
 
-		assert.equal(calls, 3);
+		assert.equal(calls, 1);
 		assert.equal(state.todos[0].status, "completed-manually");
 		assert.equal(state.todos[0].error, undefined);
-		assert.equal(state.todos[1].status, "awaiting-user");
+		assert.equal(state.todos[1].status, "design-editing");
 		assert.equal(state.currentStep, 2);
 		assert.equal(notifications.some((message) => /todo 1 failed/i.test(message)), false);
 	} finally {

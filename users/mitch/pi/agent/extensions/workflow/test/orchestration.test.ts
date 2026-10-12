@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadWorkflowConfig, resolveWorkflowAgents, workflowConfigPath } from "../config.ts";
+import { writeWorkflowTestAgents } from "./agents.ts";
 import { writeTestAgent } from "../../subagent/test/agents.ts";
 import { WorkflowOrchestrator } from "../orchestrator.ts";
 import { createWorkflowTodos } from "../planner.ts";
@@ -17,6 +18,7 @@ import { cloneState, createWorkflowState, markWorkflowInterrupted, restoreState,
 type TestConfig = { implementer?: Record<string, unknown>; reviewer?: Record<string, unknown>; "max-review-cycles"?: number };
 
 function configure(root: string, config: TestConfig) {
+	writeWorkflowTestAgents(root);
 	writeTestAgent(root, "implementer", config.implementer);
 	writeTestAgent(root, "reviewer", config.reviewer);
 	writeFileSync(workflowConfigPath(root), JSON.stringify(config["max-review-cycles"] === undefined ? {} : { "max-review-cycles": config["max-review-cycles"] }));
@@ -32,6 +34,10 @@ function fixture(config: TestConfig = {}) {
 	const ctx = { cwd, ui: { notify() {} } } as unknown as ExtensionContext;
 	const state = createWorkflowState();
 	state.todos = createWorkflowTodos([{ title: "First", instructions: ["Implement first."] }, { title: "Second", instructions: ["Implement second."] }]);
+	// Code-cycle tests start from an accepted, unchanged design checkpoint.
+	state.todos[0].designs = [{ planRevision: 1, baselineTree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904", resultTree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904", changedFiles: [], reviews: [], accepted: true }];
+	state.todos[0].designAccepted = 0;
+	state.todos[0].status = "interrupted";
 	const calls: AgentRunOptions[] = [];
 	const saved: WorkflowState[] = [];
 	const verdicts: string[] = [];
@@ -212,6 +218,8 @@ test("a new todo gets new role sessions", async () => {
 		f.state.todos[0].status = "approved";
 		f.state.currentStep = 2;
 		await run.execute(f.ctx);
+		await run.reviewDesign(f.ctx);
+		await run.approveDesign(f.ctx);
 		assert.notEqual(f.calls[0].sessionFile, f.calls[2].sessionFile);
 		assert.notEqual(f.calls[1].sessionFile, f.calls[3].sessionFile);
 		assert.match(f.calls[2].task, /^Implement todo 2/);
@@ -236,7 +244,7 @@ test("failed review resumes review without reimplementing completed work", async
 		f.controls.beforeRun = async (options) => { if (options.roleName === "reviewer") throw new Error("review disconnected"); };
 		await f.orchestrator().execute(f.ctx);
 		assert.equal(f.state.todos[0].status, "failed");
-		assert.deepEqual(f.state.todos[0].checkpoint, { role: "reviewer", revisionIndex: 0 });
+		assert.deepEqual(f.state.todos[0].checkpoint, { role: "code-reviewer", revisionIndex: 0 });
 		const restored = restoreState(cloneState(f.state))!;
 		f.controls.beforeRun = async () => {};
 		await f.orchestrator(restored).execute(f.ctx);
