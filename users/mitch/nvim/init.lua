@@ -5,7 +5,6 @@ vim.o.termguicolors = true
 vim.o.expandtab = true
 vim.o.shiftwidth = 4
 vim.o.tabstop = 4
-vim.opt.completeopt = { "menuone", "noselect", "popup" }
 
 -- Keep Markdown prose at a review-friendly line length while typing.
 vim.api.nvim_create_autocmd("FileType", {

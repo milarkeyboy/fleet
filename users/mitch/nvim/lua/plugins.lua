@@ -9,11 +9,14 @@ vim.pack.add({
   -- LSP config helper
   "https://github.com/neovim/nvim-lspconfig",
 
+  -- LSP and command-line completion.
+  {
+    src = "https://github.com/Saghen/blink.cmp",
+    version = vim.version.range("1"),
+  },
+
   -- key-hints popup
   "https://github.com/folke/which-key.nvim",
-
-  -- cmdline wildmenu/popup completion
-  "https://github.com/gelguy/wilder.nvim",
 
   -- optional, but recommended highlight
   "https://github.com/nvim-treesitter/nvim-treesitter",
@@ -28,6 +31,29 @@ vim.pack.add({
 vim.cmd.colorscheme("vscode")
 
 -- Plugin setups (safe to run after add(), because add() loads by default)
+require("blink.cmp").setup({
+  keymap = { preset = "default" },
+  completion = {
+    list = { selection = { preselect = false, auto_insert = false } },
+    documentation = { auto_show = true },
+  },
+  sources = {
+    default = { "lsp" },
+    -- Leave context-sensitive suggestions to the language server.
+    providers = { lsp = { fallbacks = {} } },
+  },
+  -- Keep completion self-contained across machines, including NixOS.
+  fuzzy = { implementation = "lua" },
+  cmdline = {
+    enabled = true,
+    completion = {
+      -- Preserve the typed command until a suggestion is explicitly accepted.
+      list = { selection = { preselect = false, auto_insert = false } },
+      menu = { auto_show = true },
+    },
+  },
+})
+
 require("gitsigns").setup({
   -- Show trailing blame and make it snappy.
   current_line_blame = true,
@@ -79,19 +105,4 @@ vim.api.nvim_create_autocmd('FileType', {
 require("which-key").setup({
   preset = "modern",
   delay = 0,
-})
-
-local wilder = require('wilder')
-wilder.setup({ modes = { ':', '/', '?' } })
-wilder.set_option('renderer', wilder.popupmenu_renderer({
-  -- highlighter applies highlighting to the candidates
-  highlighter = wilder.basic_highlighter(),
-}))
-
--- Register Wilder's Python functions once Neovim defines the command.
-vim.api.nvim_create_autocmd('VimEnter', {
-  once = true,
-  callback = function()
-    vim.cmd.UpdateRemotePlugins()
-  end,
 })
