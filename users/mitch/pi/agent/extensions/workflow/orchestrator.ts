@@ -1,9 +1,10 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_MAX_REVIEW_CYCLES, type CompleteWorkflowModelConfig } from "./config.ts";
+import { DEFAULT_MAX_REVIEW_CYCLES, type CompleteWorkflowConfig } from "./config.ts";
 import type { WorkflowContent } from "./content.ts";
-import { implementerInvocation, reviewerInvocation, validateImplementation, validateReview } from "./context.ts";
+import { extractProtocolJson, implementerInvocation, reviewerInvocation, validateImplementation, validateReview } from "./context.ts";
 import { diffForHumanCheckpoint, diffTrees, snapshotWorktree } from "./git.ts";
-import { extractProtocolJson, runAgent } from "./runner.ts";
+import { runSubagent } from "../subagent/api.ts";
+import type { runAgent } from "../subagent/runner.ts";
 import { WorkflowSessionStore, type WorkflowLease } from "./sessions.ts";
 import { completeTodosManuallyBefore, currentTodo, isWorkflowComplete, latestRevision, nextPendingTodo, type ImplementationResult, type ReviewResult, type WorkflowRevision, type WorkflowState, type WorkflowTodo } from "./state.ts";
 import { todoSummary } from "./ui.ts";
@@ -12,7 +13,7 @@ export interface OrchestratorHooks {
 	persist: () => void;
 	updateUi: (ctx: ExtensionContext) => void;
 	content: () => WorkflowContent;
-	models: (ctx: ExtensionContext, signal?: AbortSignal) => Promise<CompleteWorkflowModelConfig>;
+	models: (ctx: ExtensionContext, signal?: AbortSignal) => Promise<CompleteWorkflowConfig>;
 	sessions: (ctx: ExtensionContext) => WorkflowSessionStore;
 	runAgent?: typeof runAgent;
 }
@@ -49,7 +50,7 @@ export class WorkflowOrchestrator {
 
 	private async runExclusive(
 		ctx: ExtensionContext,
-		run: (signal: AbortSignal, models: CompleteWorkflowModelConfig, store: WorkflowSessionStore, lease: WorkflowLease) => Promise<void>,
+		run: (signal: AbortSignal, models: CompleteWorkflowConfig, store: WorkflowSessionStore, lease: WorkflowLease) => Promise<void>,
 	): Promise<void> {
 		if (this.running || this.stopping) throw new Error("A workflow subagent is already running or stopping.");
 		this.running = true;
@@ -190,7 +191,7 @@ export class WorkflowOrchestrator {
 		this.changed(ctx);
 	}
 
-	private async runTodo(ctx: ExtensionContext, todo: WorkflowTodo, models: CompleteWorkflowModelConfig, store: WorkflowSessionStore, lease: WorkflowLease, signal: AbortSignal): Promise<void> {
+	private async runTodo(ctx: ExtensionContext, todo: WorkflowTodo, models: CompleteWorkflowConfig, store: WorkflowSessionStore, lease: WorkflowLease, signal: AbortSignal): Promise<void> {
 		try {
 			while (true) {
 				signal.throwIfAborted();
@@ -214,14 +215,11 @@ export class WorkflowOrchestrator {
 					this.changed(ctx);
 					signal.throwIfAborted();
 					try {
-						const run = await (this.hooks.runAgent ?? runAgent)({
-							cwd: ctx.cwd, roleName: "workflow-implementer", sessionFile: prepared.session.file,
-							...implementerInvocation(this.state, todo, content, { continuing: prepared.hasHistory, interrupted }),
-							tools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
-							model: models.implementer.model, thinkingLevel: models.implementer.thinkingLevel,
-							contextFileDiscovery: models.implementer["context-file-discovery"],
+						const { systemPrompt, ...assignment } = implementerInvocation(this.state, todo, content, { continuing: prepared.hasHistory, interrupted });
+						const run = await runSubagent(models.implementer, {
+							cwd: ctx.cwd, sessionFile: prepared.session.file, ...assignment, instructions: systemPrompt,
 							signal, onProcess: lease.setChildPid,
-						});
+						}, this.hooks.runAgent);
 						signal.throwIfAborted();
 						record.implementation = { ...validateImplementation(extractProtocolJson<ImplementationResult>(run.output, "workflow-implementation")), model: models.implementer.model, thinkingLevel: models.implementer.thinkingLevel ?? "off" };
 						todo.checkpoint!.role = "reviewer";
@@ -241,14 +239,11 @@ export class WorkflowOrchestrator {
 					todo.checkpoint!.role = "reviewer";
 					const prepared = store.prepare(this.state, todo, "reviewer");
 					this.changed(ctx);
-					const run = await (this.hooks.runAgent ?? runAgent)({
-						cwd: ctx.cwd, roleName: "workflow-reviewer", sessionFile: prepared.session.file,
-						...reviewerInvocation(this.state, todo, content, { continuing: prepared.hasHistory, interrupted }),
-						tools: ["read", "grep", "find", "ls"],
-						model: models.reviewer.model, thinkingLevel: models.reviewer.thinkingLevel,
-						contextFileDiscovery: models.reviewer["context-file-discovery"],
+					const { systemPrompt, ...assignment } = reviewerInvocation(this.state, todo, content, { continuing: prepared.hasHistory, interrupted });
+					const run = await runSubagent(models.reviewer, {
+						cwd: ctx.cwd, sessionFile: prepared.session.file, ...assignment, instructions: systemPrompt,
 						signal, onProcess: lease.setChildPid,
-					});
+					}, this.hooks.runAgent);
 					signal.throwIfAborted();
 					record.review = { ...validateReview(extractProtocolJson<ReviewResult>(run.output, "workflow-review")), model: models.reviewer.model, thinkingLevel: models.reviewer.thinkingLevel ?? "off" };
 					this.changed(ctx);

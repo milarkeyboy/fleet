@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-export const WORKFLOW_ENTRY_TYPE = "workflow-state-v6";
-export const LEGACY_WORKFLOW_ENTRY_TYPES = new Set([1, 2, 3, 4, 5].map((version) => `workflow-state-v${version}`));
+export const WORKFLOW_ENTRY_TYPE = "workflow-state-v7";
+export const LEGACY_WORKFLOW_ENTRY_TYPES = new Set([1, 2, 3, 4, 5, 6].map((version) => `workflow-state-v${version}`));
 export type WorkflowRole = "implementer" | "reviewer";
 
 export type WorkflowSkillSource = "plan" | "user";
@@ -86,7 +86,7 @@ export interface WorkflowTodo {
 }
 
 export interface WorkflowState {
-	version: 6;
+	version: 7;
 	id: string;
 	ownerSessionId?: string;
 	/** Persisted before destructive cleanup so a restart cannot resume discarded work. */
@@ -105,7 +105,7 @@ export interface WorkflowState {
 export function createWorkflowState(): WorkflowState {
 	const now = Date.now();
 	return {
-		version: 6,
+		version: 7,
 		id: randomUUID(),
 		planning: false,
 		executing: false,
@@ -200,7 +200,7 @@ export function cloneState(state: WorkflowState): WorkflowState {
 export function restoreState(value: unknown): WorkflowState | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const candidate = value as Record<string, unknown>;
-	if (candidate.version !== 6 || typeof candidate.id !== "string" || !/^[a-f0-9-]{36}$/.test(candidate.id) || !Array.isArray(candidate.todos)) return undefined;
+	if (candidate.version !== 7 || typeof candidate.id !== "string" || !/^[a-f0-9-]{36}$/.test(candidate.id) || !Array.isArray(candidate.todos)) return undefined;
 	if (candidate.ownerSessionId !== undefined && typeof candidate.ownerSessionId !== "string") return undefined;
 	const validTodos = candidate.todos.every((todo) => {
 		if (!todo || typeof todo !== "object") return false;
@@ -226,7 +226,7 @@ export function restoreState(value: unknown): WorkflowState | undefined {
 			&& Array.isArray(item.revisions);
 	});
 	if (!validTodos) return undefined;
-	return cloneState({ ...createWorkflowState(), ...candidate, version: 6 } as WorkflowState);
+	return cloneState({ ...createWorkflowState(), ...candidate, version: 7 } as WorkflowState);
 }
 
 interface WorkflowSessionEntry {
@@ -245,7 +245,7 @@ export function restoreWorkflowBranch(entries: WorkflowSessionEntry[], branch: W
 	const fresh = () => ({ ...createWorkflowState(), ownerSessionId });
 	if (!selected) return latest ? { state: fresh(), replanReason: "Workflow history diverged. Submit a new plan; other histories' role sessions are unchanged." } : { state: fresh() };
 	if (selected.id !== latest?.id) return { state: fresh(), replanReason: "Workflow history diverged. Submit a new plan; other histories' role sessions are unchanged." };
-	if (selected.customType !== WORKFLOW_ENTRY_TYPE) return { state: fresh(), replanReason: "This workflow uses an older state format. Submit a new plan to create persistent per-todo role sessions." };
+	if (selected.customType !== WORKFLOW_ENTRY_TYPE) return { state: fresh(), replanReason: "This workflow uses an older state format. Submit a new plan to use global subagent definitions. Historical artefacts have been retained." };
 	const state = restoreState(selected.data);
 	if (!state) return { state: fresh(), replanReason: "Workflow state is invalid. Submit a new plan." };
 	if (state.ownerSessionId && state.ownerSessionId !== ownerSessionId) return { state: fresh(), replanReason: "This workflow belongs to another parent session. Submit a new plan; its role sessions are unchanged." };

@@ -1,0 +1,15 @@
+{
+  "name": "pi-extension-subagent",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --import ./test/runtime.ts --test test/*.test.ts",
+    "check": "npm run test"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

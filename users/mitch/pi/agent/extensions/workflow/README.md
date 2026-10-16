@@ -31,7 +31,6 @@ explicitly marks it completed manually by forcing execution from a later todo.
 | `/workflow skills` | List discovered Agent Skills |
 | `/workflow skill N NAME\|none` | Assign or clear a todo's primary skill |
 | `/workflow models` | Show implementer and reviewer model configuration |
-| `/workflow model ROLE PROVIDER/MODEL [LEVEL]` | Configure a role model and optional thinking level |
 | `/workflow review` | Show the current checkpoint and approval menu |
 | `/workflow approve` | Approve the current todo and start the next |
 | `/workflow feedback [text]` | Request a revision followed by another review |
@@ -39,76 +38,59 @@ explicitly marks it completed manually by forcing execution from a later todo.
 | `/workflow pause` / `resume` | Pause or resume orchestration |
 | `/workflow abort` | Abort the current todo |
 | `/workflow roles` | Show resolved roles, skills, and diagnostics |
-| `/workflow init` | Copy portable role placeholders into the project |
 | `/workflow clear` | Clear workflow state |
 
 `pi --workflow` starts with workflow planning enabled.
 
-## Role models
+## Shared subagents
 
-Both subagent roles require explicit global model assignments before execution:
+Workflow maps its implementer and reviewer roles to global definitions under
+`<agent-dir>/agents/` (normally `~/.pi/agent/agents/`). Role assignments are
+configured in `workflow/config.json` and default to the same-named definitions.
+The same definitions serve the ad-hoc `subagent` tool. Each Markdown file contains the prompt and
+frontmatter settings for its explicit model, thinking level, tools and context
+discovery. See [Subagents](../subagent/README.md) for the format and shared API.
 
-```text
-/workflow model implementer openai-codex/gpt-5.6-sol high
-/workflow model reviewer openai-codex/gpt-5.6-sol high
-/workflow models
-```
+Edit agent files to change their settings, or edit the workflow configuration to
+select different agents. `/workflow models` shows role-to-agent mappings and
+resolved models; `/workflow roles` shows mappings, paths and discovered skills.
+Both definitions must be valid before execution. The reviewer must use only
+`read`, `grep`, `find` and `ls`; incompatible tool settings stop execution.
 
-Configuration is stored in pi's agent directory at `workflow/config.json`
-(normally `~/.pi/agent/workflow/config.json`). It is deliberately outside
-repositories and portable Markdown. Subagents never fall back to the top-level
-model or thinking level. An omitted role thinking level selects `off`, including
-when reopening a conversation that previously used another level.
-
-Before changing todo state, the extension creates a subprocess-equivalent model
-registry and checks both model availability and authentication. Models
-registered only by extensions are unavailable because subagents use
-`--no-extensions`. A top-level `--api-key` is runtime-only and is not inherited;
-credentials must be available through `/login`/`auth.json`, `models.json`, or
-the inherited environment.
-
+Before changing execution state, workflow checks both models and their
+credentials against subprocess-visible configuration. Parent-only model
+providers and runtime API-key overrides cannot supply isolated children.
 The exact model and thinking level used are recorded with each implementation
-and review artefact and shown in todo summaries.
+and review artefact.
 
-## Context and review configuration
+## Workflow configuration
 
-Edit `~/.pi/agent/workflow/config.json` to configure discovery independently for
-each role and the maximum number of implement/review cycles per human checkpoint:
+`<agent-dir>/workflow/config.json` contains workflow-specific settings:
 
 ```json
 {
-  "implementer": {
-    "model": "openai-codex/gpt-5.6-sol",
-    "thinkingLevel": "high",
-    "context-file-discovery": false
+  "agents": {
+    "implementer": "implementer",
+    "reviewer": "reviewer"
   },
-  "reviewer": {
-    "model": "openai-codex/gpt-5.6-sol",
-    "thinkingLevel": "high",
-    "context-file-discovery": true
-  },
-  "max-review-cycles": 3
+  "max-review-cycles": 4
 }
 ```
 
-`context-file-discovery` defaults to `true`. Setting it to `false` adds Pi's
-`--no-context-files` argument for that role, disabling automatic discovery of
-user, ancestor-directory and working-directory `AGENTS.md`/`CLAUDE.md` files and
-their supported variants. Role prompts, the workflow plan and assigned skills
-are still supplied. Supply selected instructions through role Markdown or todo
-instructions when discovery is disabled.
+Set `agents.implementer` to `"worker"` to use the general-purpose worker for
+implementation, or select another global agent by name. Omitted roles use the
+same-named agent. The agent assigned to the reviewer role must have only
+read/search tools. Unknown or invalid definitions stop execution.
 
-`max-review-cycles` defaults to `2` and must be a positive safe integer. It counts
-the initial implement/review cycle; `1` performs that cycle and sends any
-requested changes straight to the human checkpoint. Human feedback resets the
-count and starts a fresh allowance. Approval or escalation can end the cycle
-before the maximum is reached.
+`max-review-cycles` defaults to `2` and must be a positive safe integer.
+The initial implement/review cycle counts towards the maximum. Human feedback
+resets the allowance. Approval or escalation can end a cycle early.
 
-Configuration is reloaded before each execution, resumption or human-feedback
-round and remains fixed during its automatic revisions. `/workflow model`
-preserves discovery settings and the cycle maximum. Changes affect subsequent
-invocations; existing role-conversation history remains available. Start a new
-plan for fresh conversations if previously loaded context must be removed.
+Agent definitions and workflow configuration are reloaded before each execution,
+resumption or human-feedback round and remain fixed during automatic revisions.
+File edits take effect on the next round without `/reload`. Existing role
+conversations are retained when assignments change; start a new plan when fresh
+conversations are required.
 
 ## Planning and optional skills
 
@@ -116,9 +98,9 @@ Planning uses the top-level session's selected model, conversation, context
 files, and normal system prompt. While planning is active, the extension appends
 the bundled `content/planner.md`, typed-submission instructions, and the names
 and descriptions of currently discovered skills. Planning blocks built-in `edit`
-and `write` calls and restricts Bash to read-only commands, including calls made
-through `codemode`. The shared `questionnaire` tool remains available for important
-decisions.
+and `write` calls, blocks `subagent` delegation, and restricts Bash to read-only
+commands, including calls made through `codemode`. The shared `questionnaire`
+tool remains available for important decisions.
 
 Planning preserves active MCP tools, resource tools, `codemode` and `tool_search`,
 so the planner can read Jira issues and use other configured integrations.
@@ -150,23 +132,10 @@ applies. Untagged todos execute normally. Skill values must use exact discovered
 names. An unknown explicit skill must be resolved interactively or with
 `/workflow skill N NAME|none` before execution.
 
-Workflow state uses version 6. Older workflows require a new plan; their state
-and subagent conversations are not migrated.
+Workflow state uses version 7. Older workflows require a new plan. Historical
+state entries and role transcripts remain untouched.
 
-## Portable roles and Agent Skills
-
-Run `/workflow init` in a trusted project to create:
-
-```text
-.agents/
-└── workflow/
-    └── roles/
-        ├── implementer.md
-        └── reviewer.md
-```
-
-Role files are plain Markdown prompts with no frontmatter, so they can also be
-supplied directly to other subagent harnesses.
+## Agent Skills
 
 Add any standard Agent Skill at `~/.agents/skills/<name>/SKILL.md` or
 `.agents/skills/<name>/SKILL.md`; recursive discovery makes it immediately
@@ -210,8 +179,8 @@ the current settings.
 
 Each todo owns two persisted Pi conversations: one implementer and one reviewer.
 Automatic revisions, human feedback and retries reopen the same role conversation.
-The next todo starts new conversations. Each invocation uses a short-lived Pi
-JSON-mode subprocess launched with:
+The next todo starts new conversations. Each invocation uses the shared runner
+and a short-lived Pi JSON-mode subprocess launched with:
 
 - `--session <role-session-file>`
 - `--no-extensions`
@@ -220,7 +189,7 @@ JSON-mode subprocess launched with:
 - the role's required configured model and thinking level
 
 Subagents retain Pi's normal context-file discovery unless disabled for their
-role in `workflow/config.json`. Both roles receive the complete canonical
+definition in `agents/<name>.md`. Both roles receive the complete canonical
 workflow plan and a separate status list marking each todo as approved,
 completed manually, current, upcoming, or aborted. The plan is a scope boundary:
 implementers must not absorb upcoming work, and reviewers must flag scope
@@ -312,11 +281,20 @@ history or forking the parent requires a new plan. The extension preserves the
 other history's transcripts and refuses to reuse or delete them from the new
 history.
 
+## Configuration change
+
+Agent prompts and model/tool settings now live together in
+`<agent-dir>/agents/<name>.md`. Move any personal prompt customisations into
+those files. Workflow configuration holds role-to-agent mappings and the review
+limit; `/workflow models` and `roles` inspect the resolved assignments.
+Submit a new plan for workflows saved before state version 7. Replanning leaves
+historical transcripts and artefacts available for manual inspection.
+
 ## Tests
 
-Run `npm test` in the extension directory. Tests use deterministic subprocess
-peers and temporary workspaces. When a Node-based Pi installation is available on
-`PATH`, session-format and compaction checks also run against its real SDK without
+Run `npm test` in the extension directory and in `../subagent`. Tests use the
+installed Node-based Pi API, deterministic subprocess peers and temporary
+workspaces. Session-format and compaction checks exercise the real SDK without
 calling a provider.
 
 Real-model isolation and conversational-continuity tests are opt-in:
@@ -329,7 +307,7 @@ These tests use configured credentials and incur model usage.
 
 ## Security
 
-Repository-controlled planner prompts, roles, and skills are instructions and
-may include executable helpers. Project content is loaded only for trusted
+Global agent definitions and repository-controlled skills contain instructions
+and may reference executable helpers. Project skills are loaded only for trusted
 projects. Review shared Markdown before use. Implementers have normal write and
 shell tools; reviewers are hard-limited to read/search tools.

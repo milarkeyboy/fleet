@@ -4,11 +4,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Usage } from "@earendil-works/pi-ai";
 
 export interface AgentRunOptions {
 	cwd: string;
 	roleName: string;
-	sessionFile: string;
+	sessionFile?: string;
 	systemPrompt: string;
 	task: string;
 	skillPaths: string[];
@@ -29,6 +30,12 @@ export interface AgentRunResult {
 	stopReason?: string;
 	errorMessage?: string;
 	messages: unknown[];
+	usage?: Usage;
+}
+
+export class AgentRunError extends Error {
+	readonly result: AgentRunResult;
+	constructor(message: string, result: AgentRunResult) { super(message); this.result = result; }
 }
 
 // Subagents explicitly load the policy while opting out of extension discovery,
@@ -54,7 +61,7 @@ export function buildAgentArgs(options: AgentRunOptions, promptPath: string): st
 	const args = [
 		"--mode", "json",
 		"-p",
-		"--session", options.sessionFile,
+		...(options.sessionFile ? ["--session", options.sessionFile] : ["--no-session"]),
 		"--no-extensions",
 		"-e", BASH_POLICY_EXTENSION_PATH,
 		"--no-skills",
@@ -72,7 +79,7 @@ export function buildAgentArgs(options: AgentRunOptions, promptPath: string): st
 
 export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult> {
 	options.signal?.throwIfAborted();
-	const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-workflow-"));
+	const tempDir = await mkdtemp(path.join(os.tmpdir(), "pi-subagent-"));
 	const promptPath = path.join(tempDir, `${options.roleName.replace(/[^\w.-]/g, "_")}.md`);
 	const result: AgentRunResult = { exitCode: 1, output: "", stderr: "", messages: [] };
 	try {
@@ -113,20 +120,23 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
 			let buffer = "";
 			const processLine = (line: string) => {
 				if (!line.trim()) return;
-				try {
-					const event = JSON.parse(line);
-					if (event.type === "message_end" && event.message) {
-						result.messages.push(event.message);
-						const text = textFromMessage(event.message);
-						if (text) options.onUpdate?.(text);
-						if (event.message.role === "assistant") {
-							result.output = text;
-							result.stopReason = event.message.stopReason;
-							result.errorMessage = event.message.errorMessage;
-						}
+				let event: any;
+				try { event = JSON.parse(line); }
+				catch { return; }
+				if (event.type === "tool_execution_start") options.onUpdate?.(`Running ${event.toolName}`);
+				if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+					options.onUpdate?.(event.assistantMessageEvent.delta);
+				}
+				if (event.type === "message_end" && event.message) {
+					result.messages.push(event.message);
+					const text = textFromMessage(event.message);
+					if (text) options.onUpdate?.(text);
+					if (event.message.role === "assistant") {
+						result.output = text;
+						result.stopReason = event.message.stopReason;
+						result.errorMessage = event.message.errorMessage;
+						if (event.message.usage) result.usage = addUsage(result.usage, event.message.usage);
 					}
-				} catch {
-					// Ignore non-JSON diagnostic lines on stdout.
 				}
 			};
 			child.stdout.on("data", (data) => {
@@ -151,8 +161,8 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
 			else options.signal?.addEventListener("abort", abort, { once: true });
 		});
 		options.signal?.throwIfAborted();
-		if (result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted" || result.stopReason === "length") {
-			throw new Error(result.errorMessage || result.stderr || `${options.roleName} ended with ${result.stopReason ?? `exit code ${result.exitCode}`}`);
+		if (result.exitCode !== 0 || !result.output.trim() || result.stopReason === "error" || result.stopReason === "aborted" || result.stopReason === "length") {
+			throw new AgentRunError(result.errorMessage || result.stderr || `${options.roleName} ended with ${result.stopReason ?? `exit code ${result.exitCode}`} and ${result.output.trim() ? "partial output" : "no output"}.`, result);
 		}
 		return result;
 	} finally {
@@ -160,13 +170,19 @@ export async function runAgent(options: AgentRunOptions): Promise<AgentRunResult
 	}
 }
 
-export function extractProtocolJson<T>(output: string, tag: string): T {
-	const pattern = new RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*</${tag}>`, "i");
-	const match = output.match(pattern);
-	if (!match) throw new Error(`Agent output did not contain <${tag}> structured result.`);
-	try {
-		return JSON.parse(match[1]) as T;
-	} catch (error) {
-		throw new Error(`Invalid ${tag} JSON: ${error instanceof Error ? error.message : String(error)}`);
-	}
+function addUsage(total: Usage | undefined, next: Usage): Usage {
+	return {
+		input: (total?.input ?? 0) + next.input,
+		output: (total?.output ?? 0) + next.output,
+		cacheRead: (total?.cacheRead ?? 0) + next.cacheRead,
+		cacheWrite: (total?.cacheWrite ?? 0) + next.cacheWrite,
+		totalTokens: (total?.totalTokens ?? 0) + next.totalTokens,
+		cost: {
+			input: (total?.cost.input ?? 0) + next.cost.input,
+			output: (total?.cost.output ?? 0) + next.cost.output,
+			cacheRead: (total?.cost.cacheRead ?? 0) + next.cost.cacheRead,
+			cacheWrite: (total?.cost.cacheWrite ?? 0) + next.cost.cacheWrite,
+			total: (total?.cost.total ?? 0) + next.cost.total,
+		},
+	};
 }

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { BASH_POLICY_EXTENSION_PATH, buildAgentArgs, extractProtocolJson } from "../runner.ts";
+import { BASH_POLICY_EXTENSION_PATH, buildAgentArgs } from "../runner.ts";
 
 function options(skillPaths: string[]) {
 	return {
@@ -97,7 +97,14 @@ test("cancelling a subprocess waits for exit and removes its abort listener", ()
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("extracts structured handoff protocol", () => {
-	const value = extractProtocolJson<{ verdict: string }>("notes\n<workflow-review>{\"verdict\":\"approve\"}</workflow-review>", "workflow-review");
-	assert.equal(value.verdict, "approve");
+
+test("ad-hoc subprocesses explicitly use an in-memory session", () => {
+	const args = buildAgentArgs({ ...options([]), sessionFile: undefined }, "/tmp/role.md");
+	assert.equal(args.includes("--no-session"), true);
+	assert.equal(args.includes("--session"), false);
+});
+
+test("independent ephemeral subprocesses start with fresh conversations", () => {
+	assert.deepEqual(subprocess("ephemeral", "remember-this"), { ok: true, output: "first run", listeners: 0 });
+	assert.deepEqual(subprocess("ephemeral", "recall"), { ok: true, output: "first run", listeners: 0 });
 });

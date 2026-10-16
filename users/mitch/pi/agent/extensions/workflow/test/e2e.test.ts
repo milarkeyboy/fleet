@@ -7,11 +7,11 @@ import os from "node:os";
 import { promisify } from "node:util";
 import path from "node:path";
 import test from "node:test";
-import { runAgent, type AgentRunOptions } from "../runner.ts";
+import { runAgent, type AgentRunOptions } from "../../subagent/runner.ts";
 import { createWorkflowTodos } from "../planner.ts";
 import { WorkflowSessionStore } from "../sessions.ts";
 import { createWorkflowState } from "../state.ts";
-import { installedPi } from "./pi.ts";
+import { installedPi } from "../../subagent/test/pi.ts";
 
 const execFileAsync = promisify(execFile);
 const enabled = process.env.PI_WORKFLOW_E2E === "1";

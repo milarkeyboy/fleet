@@ -8,7 +8,7 @@ import { implementerInvocation, reviewerInvocation } from "../context.ts";
 import { createWorkflowTodos } from "../planner.ts";
 import { WorkflowSessionStore } from "../sessions.ts";
 import { createWorkflowState } from "../state.ts";
-import { installedPi } from "./pi.ts";
+import { installedPi } from "../../subagent/test/pi.ts";
 
 const pi = installedPi();
 for (const [role, invoke] of [["implementer", implementerInvocation], ["reviewer", reviewerInvocation]] as const) {
@@ -24,10 +24,7 @@ for (const [role, invoke] of [["implementer", implementerInvocation], ["reviewer
 				{ humanFeedback: "Remove the fallback.", changedFiles: [] },
 				{ humanFeedback: "Change the label to Retry.", changedFiles: [], implementation: { status: "completed", summary: "done", filesChanged: [], tests: [] } },
 			];
-			const content = { planner: "", skills: {}, diagnostics: [], roles: {
-				implementer: { name: "implementer" as const, body: "Implement", filePath: "/impl.md", source: "bundled" as const },
-				reviewer: { name: "reviewer" as const, body: "Review", filePath: "/review.md", source: "bundled" as const },
-			} };
+			const content = { planner: "", skills: {}, diagnostics: [] };
 			const snapshot = invoke(state, todo, content).systemPrompt;
 			const store = new WorkflowSessionStore(root, "parent", root);
 			const lease = store.acquire(state);

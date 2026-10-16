@@ -5,6 +5,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { resolveWorkflowAgents } from "../config.ts";
+import { writeTestAgent } from "../../subagent/test/agents.ts";
 import { WorkflowSessionStore } from "../sessions.ts";
 import { shouldAutomaticallyRevise, WorkflowOrchestrator } from "../orchestrator.ts";
 import { completeTodosManuallyBefore, createWorkflowState, cumulativeRevision, currentTodo, humanCheckpointRevision, isWorkflowComplete, restoreState, type WorkflowTodo } from "../state.ts";
@@ -193,21 +195,20 @@ test("orchestration caches net diffs between human checkpoints", async () => {
 			content() {
 				return {
 					planner: "",
-					roles: {
-						implementer: { name: "implementer", body: "Implement", filePath: "/implementer.md", source: "bundled" },
-						reviewer: { name: "reviewer", body: "Review", filePath: "/reviewer.md", source: "bundled" },
-					},
 					skills: {},
 					diagnostics: [],
 				};
 			},
 			async models() {
-				return { implementer: { model: "test/implementer" }, reviewer: { model: "test/reviewer" } } as any;
+				const agentDir = path.join(cwd, ".git", "agent");
+				writeTestAgent(agentDir, "implementer");
+				writeTestAgent(agentDir, "reviewer");
+				return resolveWorkflowAgents(agentDir);
 			},
 			sessions: () => store,
 			async runAgent(options) {
 				calls++;
-				if (options.roleName === "workflow-implementer") {
+				if (options.roleName === "implementer") {
 					const file = ["one.ts", "two.ts", "three.ts", "four.ts"][Math.floor(calls / 2)]!;
 					await writeFile(path.join(cwd, file), `${file}\n`);
 					return { exitCode: 0, output: `<workflow-implementation>{"status":"completed","summary":"${file}","filesChanged":["${file}"],"tests":[]}</workflow-implementation>`, stderr: "", messages: [] };
@@ -252,16 +253,15 @@ test("forcing a later todo cancels the active run without recording a failure", 
 			content() {
 				return {
 					planner: "",
-					roles: {
-						implementer: { name: "implementer", body: "Implement", filePath: "/implementer.md", source: "bundled" },
-						reviewer: { name: "reviewer", body: "Review", filePath: "/reviewer.md", source: "bundled" },
-					},
 					skills: {},
 					diagnostics: [],
 				};
 			},
 			async models() {
-				return { implementer: { model: "test/implementer" }, reviewer: { model: "test/reviewer" } } as any;
+				const agentDir = path.join(cwd, ".git", "agent");
+				writeTestAgent(agentDir, "implementer");
+				writeTestAgent(agentDir, "reviewer");
+				return resolveWorkflowAgents(agentDir);
 			},
 			sessions: () => new WorkflowSessionStore(path.join(cwd, ".git", "workflow-sessions"), "parent", cwd),
 			async runAgent(options) {

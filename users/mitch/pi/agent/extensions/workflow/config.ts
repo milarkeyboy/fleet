@@ -1,180 +1,77 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
-
-export const WORKFLOW_ROLES = ["implementer", "reviewer"] as const;
-export type WorkflowRole = typeof WORKFLOW_ROLES[number];
-
-export const WORKFLOW_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
-export type WorkflowThinkingLevel = typeof WORKFLOW_THINKING_LEVELS[number];
+import { discoverAgents, requireAgent, type AgentDefinition } from "../subagent/agents.ts";
+import { createSubprocessModelRegistry, requireExecutableAgents } from "../subagent/models.ts";
 
 export const DEFAULT_MAX_REVIEW_CYCLES = 2;
-
-export interface WorkflowRoleModelConfig {
-	model: string;
-	thinkingLevel?: WorkflowThinkingLevel;
-	"context-file-discovery"?: boolean;
-}
-
-interface WorkflowSettings {
+export interface WorkflowConfig {
+	agents?: Partial<Record<"implementer" | "reviewer", string>>;
 	"max-review-cycles"?: number;
 }
-
-export type WorkflowModelConfig = Partial<Record<WorkflowRole, WorkflowRoleModelConfig>> & WorkflowSettings;
-export type CompleteWorkflowModelConfig = Record<WorkflowRole, WorkflowRoleModelConfig> & WorkflowSettings;
-
-type WorkflowModelRegistry = Pick<ModelRegistry, "find" | "hasConfiguredAuth" | "getApiKeyAndHeaders">;
-
-export async function createWorkflowSubprocessModelRegistry(signal?: AbortSignal): Promise<ModelRegistry> {
-	const { ModelRegistry, ModelRuntime } = await import("@earendil-works/pi-coding-agent");
-	const runtime = await ModelRuntime.create({ allowModelNetwork: false, signal });
-	return new ModelRegistry(runtime);
-}
+export type CompleteWorkflowConfig = WorkflowConfig & Record<"implementer" | "reviewer", AgentDefinition>;
 
 export function workflowConfigPath(agentDir: string): string {
 	return path.join(agentDir, "workflow", "config.json");
 }
 
-export function isWorkflowRole(value: string): value is WorkflowRole {
-	return WORKFLOW_ROLES.includes(value as WorkflowRole);
-}
-
-export function isWorkflowThinkingLevel(value: string): value is WorkflowThinkingLevel {
-	return WORKFLOW_THINKING_LEVELS.includes(value as WorkflowThinkingLevel);
-}
-
-export function isProviderModel(value: string): boolean {
-	const separator = value.indexOf("/");
-	return separator > 0 && separator < value.length - 1 && !/\s/.test(value);
-}
-
-function parseRoleConfig(value: unknown, role: WorkflowRole): WorkflowRoleModelConfig | undefined {
-	if (value === undefined) return undefined;
-	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Workflow model configuration for ${role} must be an object.`);
-	const candidate = value as { model?: unknown; thinkingLevel?: unknown; "context-file-discovery"?: unknown };
-	if (typeof candidate.model !== "string" || !isProviderModel(candidate.model)) {
-		throw new Error(`Workflow model configuration for ${role} must use a provider/model identifier.`);
+export function parseWorkflowConfig(value: unknown): WorkflowConfig {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Workflow configuration must be a JSON object.");
+	const config = value as Record<string, unknown>;
+	if (Object.keys(config).some((key) => !["agents", "max-review-cycles"].includes(key))) {
+		throw new Error("Workflow configuration accepts agents and max-review-cycles only. Put agent prompts and settings in <agent-dir>/agents/<name>.md.");
 	}
-	if (candidate.thinkingLevel !== undefined && (typeof candidate.thinkingLevel !== "string" || !isWorkflowThinkingLevel(candidate.thinkingLevel))) {
-		throw new Error(`Workflow thinking level for ${role} must be one of: ${WORKFLOW_THINKING_LEVELS.join(", ")}.`);
-	}
-	const discovery = candidate["context-file-discovery"];
-	if (discovery !== undefined && typeof discovery !== "boolean") {
-		throw new Error(`Workflow context-file-discovery for ${role} must be a boolean.`);
-	}
-	return {
-		model: candidate.model,
-		...(candidate.thinkingLevel !== undefined ? { thinkingLevel: candidate.thinkingLevel as WorkflowThinkingLevel } : {}),
-		...(discovery !== undefined ? { "context-file-discovery": discovery } : {}),
-	};
-}
-
-export function parseWorkflowModelConfig(value: unknown): WorkflowModelConfig {
-	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Workflow model configuration must be a JSON object.");
-	const candidate = value as Record<string, unknown>;
-	const config: WorkflowModelConfig = {};
-	const maxCycles = candidate["max-review-cycles"];
-	if (maxCycles !== undefined) {
-		if (typeof maxCycles !== "number" || !Number.isSafeInteger(maxCycles) || maxCycles < 1) {
-			throw new Error("Workflow max-review-cycles must be a positive safe integer.");
+	const parsed: WorkflowConfig = {};
+	if (config.agents !== undefined) {
+		if (!config.agents || typeof config.agents !== "object" || Array.isArray(config.agents)) {
+			throw new Error("Workflow agents must map implementer and reviewer roles to agent names.");
 		}
-		config["max-review-cycles"] = maxCycles;
+		const agents = config.agents as Record<string, unknown>;
+		if (Object.keys(agents).some((role) => !["implementer", "reviewer"].includes(role))) {
+			throw new Error("Workflow agents supports implementer and reviewer roles only.");
+		}
+		parsed.agents = {};
+		for (const role of ["implementer", "reviewer"] as const) {
+			const name = agents[role];
+			if (name === undefined) continue;
+			if (typeof name !== "string" || !name.trim()) throw new Error(`Workflow agents.${role} must be a non-empty agent name.`);
+			parsed.agents[role] = name;
+		}
 	}
-	for (const role of WORKFLOW_ROLES) {
-		const roleConfig = parseRoleConfig(candidate[role], role);
-		if (roleConfig) config[role] = roleConfig;
+	const max = config["max-review-cycles"];
+	if (max !== undefined) {
+		if (typeof max !== "number" || !Number.isSafeInteger(max) || max < 1) throw new Error("Workflow max-review-cycles must be a positive safe integer.");
+		parsed["max-review-cycles"] = max;
 	}
-	return config;
+	return parsed;
 }
 
-export async function loadWorkflowModelConfig(agentDir: string): Promise<WorkflowModelConfig> {
-	const filePath = workflowConfigPath(agentDir);
-	let source: string;
-	try {
-		source = await readFile(filePath, "utf8");
-	} catch (error) {
+export async function loadWorkflowConfig(agentDir: string): Promise<WorkflowConfig> {
+	const file = workflowConfigPath(agentDir);
+	try { return parseWorkflowConfig(JSON.parse(await readFile(file, "utf8"))); }
+	catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-		throw error;
-	}
-	try {
-		return parseWorkflowModelConfig(JSON.parse(source));
-	} catch (error) {
-		throw new Error(`Invalid workflow model configuration at ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+		throw new Error(`Invalid workflow configuration at ${file}: ${error instanceof Error ? error.message : String(error)}`);
 	}
 }
 
-export async function requireExecutableWorkflowModels(
-	config: WorkflowModelConfig,
-	registry: WorkflowModelRegistry,
-): Promise<CompleteWorkflowModelConfig> {
-	const validated = parseWorkflowModelConfig(config);
-	const missing = WORKFLOW_ROLES.filter((role) => !validated[role]);
-	if (missing.length) {
-		throw new Error(
-			`Workflow execution requires explicit model configuration for both roles. Missing: ${missing.join(", ")}. ` +
-			`Use /workflow model <implementer|reviewer> <provider/model> [thinking-level].`,
-		);
+export function resolveWorkflowAgents(agentDir: string, settings: WorkflowConfig = {}): Pick<CompleteWorkflowConfig, "implementer" | "reviewer"> {
+	const found = discoverAgents(agentDir);
+	const implementer = requireAgent(found, settings.agents?.implementer ?? "implementer");
+	const reviewer = requireAgent(found, settings.agents?.reviewer ?? "reviewer");
+	if (reviewer.tools.some((tool) => !["read", "grep", "find", "ls"].includes(tool))) {
+		throw new Error(`Workflow reviewer tools must remain read-only: read, grep, find, ls. Edit ${reviewer.filePath}.`);
 	}
-
-	const complete = validated as CompleteWorkflowModelConfig;
-	for (const role of WORKFLOW_ROLES) {
-		const assignment = complete[role];
-		const separator = assignment.model.indexOf("/");
-		const provider = assignment.model.slice(0, separator);
-		const modelId = assignment.model.slice(separator + 1);
-		const model = registry.find(provider, modelId);
-		if (!model) {
-			throw new Error(
-				`Workflow ${role} model "${assignment.model}" is not available to the isolated workflow subprocess. ` +
-				"Subagents run with --no-extensions, so extension-registered models cannot be used; configure the model in pi's built-in catalog or global models.json.",
-			);
-		}
-		if (!registry.hasConfiguredAuth(model)) {
-			throw new Error(
-				`Workflow ${role} model "${assignment.model}" is not authenticated in the isolated workflow subprocess. ` +
-				`Top-level --api-key overrides are runtime-only and are not inherited; run /login ${provider} or configure credentials through auth.json, models.json, or the subprocess environment.`,
-			);
-		}
-		const auth = await registry.getApiKeyAndHeaders(model);
-		if (!auth.ok) {
-			throw new Error(`Workflow ${role} model "${assignment.model}" subprocess authentication failed: ${auth.error}`);
-		}
-	}
-	return complete;
+	return { implementer, reviewer };
 }
 
-export async function writeWorkflowModelConfig(config: WorkflowModelConfig, agentDir: string): Promise<void> {
-	const validated = parseWorkflowModelConfig(config);
-	const filePath = workflowConfigPath(agentDir);
-	const directory = path.dirname(filePath);
-	const tempPath = path.join(directory, `.config.json.${process.pid}.${randomUUID()}.tmp`);
-	await mkdir(directory, { recursive: true });
-	try {
-		await writeFile(tempPath, `${JSON.stringify(validated, null, 2)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
-		await rename(tempPath, filePath);
-	} finally {
-		await rm(tempPath, { force: true });
-	}
+/** Resolve and preflight both roles before allocating conversations or changing execution state. */
+export async function loadWorkflowExecution(agentDir: string, signal?: AbortSignal): Promise<CompleteWorkflowConfig> {
+	const settings = await loadWorkflowConfig(agentDir);
+	const agents = resolveWorkflowAgents(agentDir, settings);
+	await requireExecutableAgents(Object.values(agents), await createSubprocessModelRegistry(signal));
+	return { ...settings, ...agents };
 }
 
-export async function setWorkflowRoleModel(
-	role: WorkflowRole,
-	model: string,
-	thinkingLevel: WorkflowThinkingLevel | undefined,
-	agentDir: string,
-): Promise<WorkflowModelConfig> {
-	const config = await loadWorkflowModelConfig(agentDir);
-	config[role] = { ...config[role], model, thinkingLevel };
-	if (thinkingLevel === undefined) delete config[role].thinkingLevel;
-	await writeWorkflowModelConfig(config, agentDir);
-	return config;
-}
-
-export function formatWorkflowModels(config: WorkflowModelConfig): string {
-	return WORKFLOW_ROLES.map((role) => {
-		const assignment = config[role];
-		if (!assignment) return `${role}: not configured`;
-		return `${role}: ${assignment.model}${assignment.thinkingLevel ? ` (thinking: ${assignment.thinkingLevel})` : ""}`;
-	}).join("\n");
+export function formatWorkflowModels(agents: Pick<CompleteWorkflowConfig, "implementer" | "reviewer">): string {
+	return Object.entries(agents).map(([role, agent]) => `${role} → ${agent.name}: ${agent.model} (thinking: ${agent.thinkingLevel ?? "off"}) — ${agent.filePath}`).join("\n");
 }

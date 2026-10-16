@@ -1,5 +1,4 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { cp, mkdir } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,16 +13,8 @@ export interface MarkdownContent {
 	source: ContentSource;
 }
 
-export interface WorkflowRoleContent {
-	name: "implementer" | "reviewer";
-	body: string;
-	filePath: string;
-	source: "bundled" | ContentSource;
-}
-
 export interface WorkflowContent {
 	planner: string;
-	roles: Record<"implementer" | "reviewer", WorkflowRoleContent>;
 	skills: Record<string, MarkdownContent>;
 	diagnostics: string[];
 	projectAgentsDir?: string;
@@ -80,31 +71,6 @@ function nearestProjectAgents(cwd: string): string | undefined {
 	}
 }
 
-function rolePath(root: string, role: string): string {
-	return path.join(root, "workflow", "roles", `${role}.md`);
-}
-
-function resolveRole(
-	role: WorkflowRoleContent["name"],
-	paths: Array<{ filePath: string; source: WorkflowRoleContent["source"] }>,
-): WorkflowRoleContent {
-	let resolved: WorkflowRoleContent | undefined;
-	for (const candidate of paths) {
-		try {
-			resolved = {
-				name: role,
-				body: readFileSync(candidate.filePath, "utf8"),
-				filePath: candidate.filePath,
-				source: candidate.source,
-			};
-		} catch {
-			// Try the next precedence level.
-		}
-	}
-	if (!resolved) throw new Error(`Missing bundled workflow role: ${paths[0]?.filePath}`);
-	return resolved;
-}
-
 function discoverSkillScope(root: string, source: ContentSource, diagnostics: string[]): Map<string, MarkdownContent> {
 	const found = new Map<string, MarkdownContent>();
 	for (const filePath of listMarkdownFiles(root).filter((file) => path.basename(file) === "SKILL.md").sort()) {
@@ -139,16 +105,7 @@ export function discoverWorkflowContent(cwd: string, projectTrusted: boolean, ho
 	const userAgents = path.join(home, ".agents");
 	const projectAgents = projectTrusted ? nearestProjectAgents(cwd) : undefined;
 	const diagnostics: string[] = [];
-	const roleSources = (role: WorkflowRoleContent["name"]) => [
-		{ filePath: path.join(bundled, "roles", `${role}.md`), source: "bundled" as const },
-		{ filePath: rolePath(userAgents, role), source: "user" as const },
-		...(projectAgents ? [{ filePath: rolePath(projectAgents, role), source: "project" as const }] : []),
-	];
 	const planner = readFileSync(path.join(bundled, "planner.md"), "utf8");
-	const roles = {
-		implementer: resolveRole("implementer", roleSources("implementer")),
-		reviewer: resolveRole("reviewer", roleSources("reviewer")),
-	};
 
 	const skills = new Map<string, MarkdownContent>();
 	const scopes: Array<[string, ContentSource]> = [
@@ -163,7 +120,7 @@ export function discoverWorkflowContent(cwd: string, projectTrusted: boolean, ho
 		}
 	}
 
-	return { planner, roles, skills: Object.fromEntries(skills), diagnostics, projectAgentsDir: projectAgents };
+	return { planner, skills: Object.fromEntries(skills), diagnostics, projectAgentsDir: projectAgents };
 }
 
 export function listMarkdownFiles(root: string): string[] {
@@ -175,19 +132,4 @@ export function listMarkdownFiles(root: string): string[] {
 		else if (entry.isFile() && entry.name.endsWith(".md")) output.push(full);
 	}
 	return output;
-}
-
-export function bundledContentRoot(): string {
-	return path.join(extensionRoot(), "content");
-}
-
-export async function scaffoldWorkflowRoles(agentsDir: string): Promise<void> {
-	const rolesDir = path.join(agentsDir, "workflow", "roles");
-	await mkdir(rolesDir, { recursive: true });
-	for (const role of ["implementer", "reviewer"]) {
-		await cp(path.join(bundledContentRoot(), "roles", `${role}.md`), path.join(rolesDir, `${role}.md`), {
-			force: false,
-			errorOnExist: false,
-		});
-	}
 }

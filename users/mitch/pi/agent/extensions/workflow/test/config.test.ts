@@ -1,218 +1,110 @@
-// Workflow configuration validation, persistence, and model preflight.
+// Workflow-only settings and resolution of the shared global agents.
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { formatWorkflowModels, isProviderModel, loadWorkflowModelConfig, parseWorkflowModelConfig, requireExecutableWorkflowModels, setWorkflowRoleModel, workflowConfigPath, writeWorkflowModelConfig } from "../config.ts";
+import { formatWorkflowModels, loadWorkflowConfig, parseWorkflowConfig, resolveWorkflowAgents, workflowConfigPath } from "../config.ts";
+import { discoverAgents, requireAgent } from "../../subagent/agents.ts";
+import { writeTestAgent } from "../../subagent/test/agents.ts";
 
-test("sets role models in the global workflow config without discarding the other role", async () => {
-	const temp = await mkdtemp(path.join(os.tmpdir(), "workflow-config-test-"));
-	const agentDir = path.join(temp, "agent");
+test("loads an absent workflow configuration with default settings", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
+	try { assert.deepEqual(await loadWorkflowConfig(root), {}); }
+	finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("loads the configured automatic review limit", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
 	try {
-		await setWorkflowRoleModel("implementer", "openai/gpt-coder", "medium", agentDir);
-		await setWorkflowRoleModel("reviewer", "openrouter/anthropic/claude-reviewer", "high", agentDir);
-		await setWorkflowRoleModel("implementer", "openai/gpt-coder-2", undefined, agentDir);
-
-		assert.deepEqual(await loadWorkflowModelConfig(agentDir), {
-			implementer: { model: "openai/gpt-coder-2" },
-			reviewer: { model: "openrouter/anthropic/claude-reviewer", thinkingLevel: "high" },
-		});
-		assert.deepEqual(await readdir(path.dirname(workflowConfigPath(agentDir))), ["config.json"]);
-		assert.equal((await readFile(workflowConfigPath(agentDir), "utf8")).endsWith("\n"), true);
-	} finally {
-		await rm(temp, { recursive: true, force: true });
-	}
+		await mkdir(path.dirname(workflowConfigPath(root)), { recursive: true });
+		await writeFile(workflowConfigPath(root), '{"max-review-cycles":4}');
+		assert.deepEqual(await loadWorkflowConfig(root), { "max-review-cycles": 4 });
+	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("loads an absent workflow model config as unconfigured", async () => {
-	const temp = await mkdtemp(path.join(os.tmpdir(), "workflow-config-test-"));
-	try {
-		assert.deepEqual(await loadWorkflowModelConfig(temp), {});
-		assert.equal(formatWorkflowModels({}), "implementer: not configured\nreviewer: not configured");
-	} finally {
-		await rm(temp, { recursive: true, force: true });
-	}
-});
-
-test("validates workflow role model configuration", () => {
-	assert.equal(isProviderModel("openrouter/anthropic/claude"), true);
-	assert.equal(isProviderModel("missing-provider"), false);
-	assert.throws(() => parseWorkflowModelConfig({ implementer: { model: "openai/gpt", thinkingLevel: "extreme" } }), /thinking level/i);
-	assert.throws(() => parseWorkflowModelConfig({ reviewer: { model: "missing-provider" } }), /provider\/model/);
-});
-
-test("parses independent role discovery settings and the cycle maximum", () => {
-	const config = {
-		implementer: { model: "test/impl", "context-file-discovery": false },
-		reviewer: { model: "test/review", "context-file-discovery": true },
-		"max-review-cycles": 3,
-	};
-	assert.deepEqual(parseWorkflowModelConfig(config), config);
-	assert.deepEqual(parseWorkflowModelConfig({ "max-review-cycles": 1 }), { "max-review-cycles": 1 });
-});
-
-test("rejects non-boolean discovery settings for either role", () => {
-	for (const role of ["implementer", "reviewer"]) {
-		for (const value of [null, "false", 0, {}, []]) {
-			assert.throws(() => parseWorkflowModelConfig({ [role]: { model: "test/model", "context-file-discovery": value } }), /context-file-discovery.*boolean/);
-		}
-	}
-});
-
-test("rejects cycle maxima that cannot represent a positive count", () => {
+test("validates positive integer review limits", () => {
 	for (const value of [0, -1, 1.5, "3", null, true, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1]) {
-		assert.throws(() => parseWorkflowModelConfig({ "max-review-cycles": value }), /max-review-cycles.*positive safe integer/);
+		assert.throws(() => parseWorkflowConfig({ "max-review-cycles": value }), /positive safe integer/);
 	}
+	assert.deepEqual(parseWorkflowConfig({ "max-review-cycles": 1 }), { "max-review-cycles": 1 });
 });
 
-test("model updates preserve discovery settings and the cycle maximum", async () => {
-	const agentDir = await mkdtemp(path.join(os.tmpdir(), "workflow-config-test-"));
+test("workflow and ad-hoc discovery resolve the same agent definitions", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
 	try {
-		await writeWorkflowModelConfig({
-			implementer: { model: "test/impl", thinkingLevel: "high", "context-file-discovery": false },
-			reviewer: { model: "test/review", "context-file-discovery": true },
-			"max-review-cycles": 3,
-		}, agentDir);
-		await setWorkflowRoleModel("implementer", "test/new-impl", undefined, agentDir);
-		await setWorkflowRoleModel("reviewer", "test/new-review", "low", agentDir);
-		assert.deepEqual(await loadWorkflowModelConfig(agentDir), {
-			implementer: { model: "test/new-impl", "context-file-discovery": false },
-			reviewer: { model: "test/new-review", thinkingLevel: "low", "context-file-discovery": true },
-			"max-review-cycles": 3,
+		writeTestAgent(root, "implementer", { thinkingLevel: "low", "context-file-discovery": false });
+		const reviewerFile = writeTestAgent(root, "reviewer", { thinkingLevel: "high" });
+		const roles = resolveWorkflowAgents(root);
+		assert.deepEqual(roles.implementer, requireAgent(discoverAgents(root), "implementer"));
+		assert.equal(roles.implementer.contextFileDiscovery, false);
+		assert.equal(formatWorkflowModels(roles), `implementer → implementer: test/impl (thinking: low) — ${path.join(root, "agents/implementer.md")}\nreviewer → reviewer: test/review (thinking: high) — ${reviewerFile}`);
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("workflow requires an independently read-only reviewer", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
+	try {
+		writeTestAgent(root, "implementer");
+		writeTestAgent(root, "reviewer", { tools: ["read", "bash"] });
+		assert.throws(() => resolveWorkflowAgents(root), /reviewer tools must remain read-only/);
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("loads configured role mappings from the workflow file", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
+	try {
+		await mkdir(path.dirname(workflowConfigPath(root)), { recursive: true });
+		await writeFile(workflowConfigPath(root), '{"agents":{"implementer":"worker","reviewer":"auditor"},"max-review-cycles":3}');
+		assert.deepEqual(await loadWorkflowConfig(root), {
+			agents: { implementer: "worker", reviewer: "auditor" }, "max-review-cycles": 3,
 		});
-	} finally { await rm(agentDir, { recursive: true, force: true }); }
+	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("executable configuration retains context settings and the cycle maximum", async () => {
-	const config = {
-		implementer: { model: "test/impl", "context-file-discovery": false },
-		reviewer: { model: "test/review", "context-file-discovery": true },
-		"max-review-cycles": 3,
-	};
-	const registry = {
-		find(provider: string, id: string) { return { provider, id }; },
-		hasConfiguredAuth() { return true; },
-		async getApiKeyAndHeaders() { return { ok: true as const, apiKey: "secret" }; },
-	};
-	assert.deepEqual(await requireExecutableWorkflowModels(config, registry as any), config);
+test("partial mappings retain the default agent for the other role", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
+	try {
+		writeTestAgent(root, "worker");
+		writeTestAgent(root, "reviewer");
+		const roles = resolveWorkflowAgents(root, { agents: { implementer: "worker" } });
+		assert.equal(roles.implementer.name, "worker");
+		assert.equal(roles.reviewer.name, "reviewer");
+	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("requires both role models before resolving either role", async () => {
-	let registryCalls = 0;
-	const registry = {
-		find() { registryCalls++; return undefined; },
-		hasConfiguredAuth() { registryCalls++; return false; },
-		async getApiKeyAndHeaders() { registryCalls++; return { ok: false as const, error: "missing" }; },
-	};
-
-	await assert.rejects(
-		requireExecutableWorkflowModels({ implementer: { model: "openai/gpt" } }, registry as any),
-		/explicit model configuration.*Missing: reviewer/i,
-	);
-	assert.equal(registryCalls, 0);
+test("configured names resolve both workflow roles to shared definitions", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
+	try {
+		writeTestAgent(root, "worker");
+		writeTestAgent(root, "auditor", { tools: ["read"], model: "test/audit", thinkingLevel: "high" });
+		const roles = resolveWorkflowAgents(root, { agents: { implementer: "worker", reviewer: "auditor" } });
+		assert.equal(roles.implementer.name, "worker");
+		assert.equal(roles.reviewer.name, "auditor");
+		assert.match(formatWorkflowModels(roles), /reviewer → auditor: test\/audit \(thinking: high\)/);
+	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("resolves configured role models and validates authentication", async () => {
-	const models = new Map([
-		["openai/gpt-coder", { provider: "openai", id: "gpt-coder" }],
-		["openrouter/anthropic/claude-reviewer", { provider: "openrouter", id: "anthropic/claude-reviewer" }],
-	]);
-	const authenticated: string[] = [];
-	const registry = {
-		find(provider: string, modelId: string) { return models.get(`${provider}/${modelId}`); },
-		hasConfiguredAuth() { return true; },
-		async getApiKeyAndHeaders(model: { provider: string; id: string }) {
-			authenticated.push(`${model.provider}/${model.id}`);
-			return { ok: true as const, apiKey: "secret" };
-		},
-	};
-	const config = {
-		implementer: { model: "openai/gpt-coder", thinkingLevel: "high" as const },
-		reviewer: { model: "openrouter/anthropic/claude-reviewer", thinkingLevel: "medium" as const },
-	};
-
-	assert.deepEqual(await requireExecutableWorkflowModels(config, registry as any), config);
-	assert.deepEqual(authenticated, ["openai/gpt-coder", "openrouter/anthropic/claude-reviewer"]);
+test("unknown configured agents produce a selection error", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
+	try {
+		writeTestAgent(root, "implementer");
+		writeTestAgent(root, "reviewer");
+		assert.throws(() => resolveWorkflowAgents(root, { agents: { implementer: "missing" } }), /Unknown or invalid subagent "missing"/);
+	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("rejects top-level runtime-only api-key authentication unavailable to subprocesses", async () => {
-	const config = {
-		implementer: { model: "openai/gpt-coder" },
-		reviewer: { model: "openai/gpt-reviewer" },
-	};
-	const find = (provider: string, id: string) => ({ provider, id });
-	const topLevelRegistry = {
-		find,
-		hasConfiguredAuth() { return true; },
-		async getApiKeyAndHeaders() { return { ok: true as const, apiKey: "runtime-api-key" }; },
-	};
-	const subprocessRegistry = {
-		find,
-		hasConfiguredAuth() { return false; },
-		async getApiKeyAndHeaders() { return { ok: false as const, error: "missing" }; },
-	};
-
-	assert.deepEqual(await requireExecutableWorkflowModels(config, topLevelRegistry as any), config);
-	await assert.rejects(
-		requireExecutableWorkflowModels(config, subprocessRegistry as any),
-		/top-level --api-key overrides.*not inherited/i,
-	);
+test("reviewer mappings preserve the workflow read-only boundary", async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
+	try {
+		writeTestAgent(root, "implementer");
+		writeTestAgent(root, "worker");
+		assert.throws(() => resolveWorkflowAgents(root, { agents: { reviewer: "worker" } }), /reviewer tools must remain read-only/);
+	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("rejects extension-registered models absent from no-extensions subprocesses", async () => {
-	const config = {
-		implementer: { model: "extension-provider/coder" },
-		reviewer: { model: "openai/gpt-reviewer" },
-	};
-	const topLevelRegistry = {
-		find(provider: string, id: string) { return { provider, id }; },
-		hasConfiguredAuth() { return true; },
-		async getApiKeyAndHeaders() { return { ok: true as const, apiKey: "configured" }; },
-	};
-	const subprocessRegistry = {
-		find(provider: string, id: string) {
-			return provider === "openai" ? { provider, id } : undefined;
-		},
-		hasConfiguredAuth() { return true; },
-		async getApiKeyAndHeaders() { return { ok: true as const, apiKey: "configured" }; },
-	};
-
-	assert.deepEqual(await requireExecutableWorkflowModels(config, topLevelRegistry as any), config);
-	await assert.rejects(
-		requireExecutableWorkflowModels(config, subprocessRegistry as any),
-		/--no-extensions.*extension-registered models cannot be used/i,
-	);
-});
-
-test("rejects unavailable and unauthenticated role models", async () => {
-	const config = {
-		implementer: { model: "openai/gpt-coder" },
-		reviewer: { model: "anthropic/claude-reviewer" },
-	};
-	const unavailable = {
-		find() { return undefined; },
-		hasConfiguredAuth() { return true; },
-		async getApiKeyAndHeaders() { return { ok: true as const }; },
-	};
-	await assert.rejects(requireExecutableWorkflowModels(config, unavailable as any), /implementer model.*not available/i);
-
-	const unauthenticated = {
-		find(provider: string, id: string) { return { provider, id }; },
-		hasConfiguredAuth() { return false; },
-		async getApiKeyAndHeaders() { return { ok: true as const }; },
-	};
-	await assert.rejects(requireExecutableWorkflowModels(config, unauthenticated as any), /implementer model.*not authenticated/i);
-});
-
-test("rejects authentication resolution failures", async () => {
-	const registry = {
-		find(provider: string, id: string) { return { provider, id }; },
-		hasConfiguredAuth() { return true; },
-		async getApiKeyAndHeaders() { return { ok: false as const, error: "expired credential" }; },
-	};
-	await assert.rejects(requireExecutableWorkflowModels({
-		implementer: { model: "openai/gpt-coder" },
-		reviewer: { model: "anthropic/claude-reviewer" },
-	}, registry as any), /authentication failed: expired credential/i);
+test("agent mappings require an object with non-empty string selections", () => {
+	for (const agents of [null, [], "worker", { implementer: 3 }, { reviewer: "" }, { reviewer: " " }]) {
+		assert.throws(() => parseWorkflowConfig({ agents }), /Workflow agents/);
+	}
 });

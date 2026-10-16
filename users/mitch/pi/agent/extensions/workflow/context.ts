@@ -1,4 +1,4 @@
-import type { MarkdownContent, WorkflowContent, WorkflowRoleContent } from "./content.ts";
+import type { MarkdownContent, WorkflowContent } from "./content.ts";
 import { extractRelevantFiles, formatWorkflowPlan, formatWorkflowTodo } from "./planner.ts";
 import { cumulativeRevision, isTodoComplete, latestRevision, type ImplementationResult, type ReviewResult, type WorkflowState, type WorkflowTodo } from "./state.ts";
 
@@ -11,10 +11,6 @@ function dependencyHandoffs(state: WorkflowState, todo: WorkflowTodo): string {
 			return `- Todo ${item.step} (${item.title}): ${revision?.implementation?.summary ?? "Approved without a recorded implementation summary."}\n  Files: ${revision?.changedFiles.join(", ") || "none"}`;
 		});
 	return prior.length ? prior.join("\n") : "- None";
-}
-
-function rolePrompt(role: WorkflowRoleContent, protocol: string): string {
-	return `${role.body.trim()}\n\n---\n\n# Workflow Protocol (required)\n\n${protocol}`;
 }
 
 function selectedSkills(todo: WorkflowTodo, content: WorkflowContent): MarkdownContent[] {
@@ -65,8 +61,8 @@ interface InvocationOptions {
 }
 
 /** Pi checkpoints system prompts during compaction; historical exchanges can be summarised separately. */
-function authoritativePrompt(state: WorkflowState, todo: WorkflowTodo, role: WorkflowRoleContent, protocol: string): string {
-	return `${rolePrompt(role, protocol)}
+function authoritativePrompt(state: WorkflowState, todo: WorkflowTodo, protocol: string): string {
+	return `# Workflow Protocol (required)\n\n${protocol}
 
 # Authoritative workflow assignment
 Use this current snapshot when older conversation messages describe different requirements.
@@ -87,7 +83,6 @@ ${humanFeedbackHistory(todo) ?? "(none)"}`;
 
 export function implementerInvocation(state: WorkflowState, todo: WorkflowTodo, content: WorkflowContent, options: InvocationOptions = {}) {
 	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
-	const role = content.roles.implementer;
 	const skills = selectedSkills(todo, content);
 	const relevant = extractRelevantFiles(todo);
 	const protocol = `Work only on the assigned todo. You may inspect additional files when necessary, but do not start another todo.
@@ -108,12 +103,11 @@ ${relevant.length ? relevant.map((file) => `- ${file}`).join("\n") : "- Discover
 Completed prerequisite handoffs:
 ${dependencyHandoffs(state, todo)}` : ""}
 ${reviewerFeedback ? `\nLatest reviewer findings:\n- ${reviewerFeedback}` : ""}`;
-	return { systemPrompt: authoritativePrompt(state, todo, role, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
+	return { systemPrompt: authoritativePrompt(state, todo, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
 }
 
 export function reviewerInvocation(state: WorkflowState, todo: WorkflowTodo, content: WorkflowContent, options: InvocationOptions = {}) {
 	if (todo.skillRequest) throw new Error(`Todo ${todo.step} requests unknown Agent Skill "${todo.skillRequest}".`);
-	const role = content.roles.reviewer;
 	const skills = selectedSkills(todo, content);
 	const result = latestRevision(todo);
 	if (!result?.implementation) throw new Error(`Todo ${todo.step} has no implementation to review.`);
@@ -145,7 +139,18 @@ ${implementation.tests.join("\n") || "(none reported)"}
 
 Todo-specific diff:
 ${result.diffPreview ?? "(unavailable)"}`;
-	return { systemPrompt: authoritativePrompt(state, todo, role, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
+	return { systemPrompt: authoritativePrompt(state, todo, protocol), task, skillPaths: skills.map((skill) => skill.filePath) };
+}
+
+export function extractProtocolJson<T>(output: string, tag: string): T {
+	const pattern = new RegExp(`<${tag}>\\s*([\\s\\S]*?)\\s*</${tag}>`, "i");
+	const match = output.match(pattern);
+	if (!match) throw new Error(`Agent output did not contain <${tag}> structured result.`);
+	try {
+		return JSON.parse(match[1]) as T;
+	} catch (error) {
+		throw new Error(`Invalid ${tag} JSON: ${error instanceof Error ? error.message : String(error)}`);
+	}
 }
 
 export function validateImplementation(value: ImplementationResult): ImplementationResult {

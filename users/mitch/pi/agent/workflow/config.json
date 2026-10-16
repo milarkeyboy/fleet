@@ -1,13 +1,7 @@
 {
-  "implementer": {
-    "model": "openai-codex/gpt-6.1-sol",
-    "thinkingLevel": "low",
-    "context-file-discovery": false
-  },
-  "reviewer": {
-    "model": "openai-codex/gpt-6.1-sol",
-    "thinkingLevel": "high",
-    "context-file-discovery": true
+  "agents": {
+    "implementer": "implementer",
+    "reviewer": "reviewer"
   },
   "max-review-cycles": 4
 }

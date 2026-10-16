@@ -1,10 +1,12 @@
 // Extension command and session-event integration, with Pi UI and model calls replaced by deterministic peers.
 import assert from "node:assert/strict";
-import { appendFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { loadWorkflowConfig, resolveWorkflowAgents, workflowConfigPath } from "../config.ts";
+import { writeTestAgent } from "../../subagent/test/agents.ts";
 import { WorkflowOrchestrator } from "../orchestrator.ts";
 import { createWorkflowTodos } from "../planner.ts";
 import { cloneState, createWorkflowState, WORKFLOW_ENTRY_TYPE, type WorkflowState } from "../state.ts";
@@ -23,7 +25,11 @@ loader.deregister();
 // Keep command handling and orchestration real; replace only the external model boundary.
 const exclusive = (WorkflowOrchestrator.prototype as any).runExclusive;
 (WorkflowOrchestrator.prototype as any).runExclusive = function(ctx: any, ...args: any[]) {
-	this.hooks.models = async () => ({ implementer: { model: "test/impl" }, reviewer: { model: "test/review" } });
+	this.hooks.models = async () => {
+		const root = (globalThis as any).workflowTestAgentDir;
+		const settings = await loadWorkflowConfig(root);
+		return { ...settings, ...resolveWorkflowAgents(root, settings) };
+	};
 	this.hooks.runAgent = ctx.runAgent;
 	return exclusive.call(this, ctx, ...args);
 };
@@ -31,6 +37,8 @@ const exclusive = (WorkflowOrchestrator.prototype as any).runExclusive;
 async function fixture(initial?: WorkflowState, initialTools = ["read", "bash", "edit", "write"]) {
 	const root = mkdtempSync(path.join(os.tmpdir(), "workflow-extension-"));
 	(globalThis as any).workflowTestAgentDir = root;
+	writeTestAgent(root, "implementer");
+	writeTestAgent(root, "reviewer");
 	const state = initial ?? createWorkflowState();
 	if (!initial) state.todos = createWorkflowTodos([{ title: "First", instructions: ["Implement first."] }, { title: "Second", instructions: ["Implement second."] }]);
 	const entries: any[] = [{ id: "entry-1", type: "custom", customType: WORKFLOW_ENTRY_TYPE, data: cloneState(state) }];
@@ -58,7 +66,7 @@ async function fixture(initial?: WorkflowState, initialTools = ["read", "bash", 
 			calls.push(options);
 			appendFileSync(options.sessionFile, `${JSON.stringify({ type: "message", message: { role: "user", content: options.task } })}\n`);
 			await control.beforeRun(options);
-			return { exitCode: 0, stderr: "", messages: [], output: options.roleName === "workflow-implementer"
+			return { exitCode: 0, stderr: "", messages: [], output: options.systemPrompt.includes("<workflow-implementation>")
 				? '<workflow-implementation>{"status":"completed","summary":"done","filesChanged":[],"tests":[]}</workflow-implementation>'
 				: '<workflow-review>{"verdict":"approve","summary":"ready","findings":[]}</workflow-review>' };
 		},
@@ -366,5 +374,103 @@ test("plan replacement removes the replaced plan's role sessions", async () => {
 		assert.equal(f.state().todos[0].title, "Replacement");
 		assert.equal(existsSync(f.calls[0].sessionFile), false);
 		assert.equal(existsSync(f.calls[1].sessionFile), false);
+	} finally { f.close(); }
+});
+
+test("workflow planning blocks direct and codemode subagent delegation", async () => {
+	const f = await fixture(undefined, ["read", "bash", "edit", "write", "subagent", "codemode"]);
+	try {
+		await f.command("on");
+		assert.equal(f.getActiveTools().includes("subagent"), false);
+		for (const parentToolCallId of [undefined, "codemode-call"]) {
+			assert.equal((await f.handlers.tool_call({ toolName: "subagent", input: { agent: "reviewer", task: "Review." }, parentToolCallId }, f.ctx))?.block, true);
+		}
+	} finally { f.close(); }
+});
+
+test("leaving workflow planning restores ad-hoc delegation", async () => {
+	const f = await fixture(undefined, ["read", "subagent", "codemode"]);
+	try {
+		await f.command("on");
+		await f.command("off");
+		assert.equal(f.getActiveTools().includes("subagent"), true);
+		assert.equal(await f.handlers.tool_call({ toolName: "subagent", input: {} }, f.ctx), undefined);
+	} finally { f.close(); }
+});
+
+for (const command of ["roles", "models"]) {
+	test(`${command} displays the configured role-to-agent assignments`, async () => {
+		const f = await fixture();
+		try {
+			writeTestAgent(f.root, "worker");
+			writeTestAgent(f.root, "auditor", { tools: ["read"], model: "test/auditor" });
+			mkdirSync(path.dirname(workflowConfigPath(f.root)), { recursive: true });
+			writeFileSync(workflowConfigPath(f.root), '{"agents":{"implementer":"worker","reviewer":"auditor"}}');
+			await f.command(command);
+			assert.match(f.notices.at(-1)!, /implementer → worker:/);
+			assert.match(f.notices.at(-1)!, /reviewer → auditor:/);
+		} finally { f.close(); }
+	});
+}
+
+test("mapping edits apply to the next round while active execution keeps its snapshot", async () => {
+	const f = await fixture();
+	try {
+		writeTestAgent(f.root, "worker", { model: "test/worker" });
+		writeTestAgent(f.root, "auditor", { tools: ["read"], model: "test/auditor" });
+		f.control.beforeRun = async () => {
+			mkdirSync(path.dirname(workflowConfigPath(f.root)), { recursive: true });
+			writeFileSync(workflowConfigPath(f.root), '{"agents":{"implementer":"worker","reviewer":"auditor"}}');
+		};
+		await f.command("execute");
+		assert.deepEqual(f.calls.map((call) => call.roleName), ["implementer", "reviewer"]);
+		await f.command("feedback Recheck the changes.");
+		assert.deepEqual(f.calls.map((call) => call.roleName), ["implementer", "reviewer", "worker", "auditor"]);
+		assert.equal(f.calls[2].model, "test/worker");
+		assert.equal(f.calls[3].model, "test/auditor");
+		assert.match(f.calls[2].systemPrompt, /^# worker prompt/);
+		assert.match(f.calls[3].systemPrompt, /^# auditor prompt/);
+	} finally { f.close(); }
+});
+
+test("changing a role assignment retains its workflow conversation", async () => {
+	const f = await fixture();
+	try {
+		await f.command("execute");
+		writeTestAgent(f.root, "worker");
+		writeFileSync(workflowConfigPath(f.root), '{"agents":{"implementer":"worker"}}');
+		await f.command("feedback Apply the revised requirements.");
+		assert.equal(f.calls[2].roleName, "worker");
+		assert.equal(f.calls[2].sessionFile, f.calls[0].sessionFile);
+		assert.equal(f.calls[3].sessionFile, f.calls[1].sessionFile);
+	} finally { f.close(); }
+});
+
+test("invalid reviewer assignments stop execution before changing todo state", async () => {
+	const f = await fixture();
+	try {
+		writeTestAgent(f.root, "worker");
+		mkdirSync(path.dirname(workflowConfigPath(f.root)), { recursive: true });
+		writeFileSync(workflowConfigPath(f.root), '{"agents":{"reviewer":"worker"}}');
+		await f.command("execute");
+		assert.match(f.notices.at(-1)!, /reviewer tools must remain read-only/);
+		assert.equal(f.calls.length, 0);
+		assert.equal(f.state().todos[0].status, "pending");
+		assert.equal(f.state().todos[0].sessions, undefined);
+	} finally { f.close(); }
+});
+
+test("replanning an older workflow retains its historical role transcripts", async () => {
+	const f = await fixture();
+	try {
+		await f.command("execute");
+		const transcript = f.state().todos[0].sessions!.implementer!.file;
+		f.entries.at(-1).customType = "workflow-state-v6";
+		f.entries.at(-1).data.version = 6;
+		await f.restart();
+		assert.deepEqual(f.state().todos, []);
+		assert.equal(f.state().planning, true);
+		assert.equal(existsSync(transcript), true);
+		assert.match(f.notices.at(-1)!, /Submit a new plan.*Historical artefacts have been retained/);
 	} finally { f.close(); }
 });

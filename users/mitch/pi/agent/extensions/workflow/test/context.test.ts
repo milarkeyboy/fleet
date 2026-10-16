@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { MarkdownContent, WorkflowContent } from "../content.ts";
-import { implementerInvocation, reviewerInvocation } from "../context.ts";
+import { extractProtocolJson, implementerInvocation, reviewerInvocation } from "../context.ts";
 import { formatWorkflowPlan, formatWorkflowTodo } from "../planner.ts";
 import { createWorkflowState, type WorkflowTodo } from "../state.ts";
 
@@ -13,10 +13,6 @@ function skill(name: string): MarkdownContent {
 function content(): WorkflowContent {
 	return {
 		planner: "Planner prompt",
-		roles: {
-			implementer: { name: "implementer", body: "Implementer prompt", filePath: "/roles/implementer.md", source: "bundled" },
-			reviewer: { name: "reviewer", body: "Reviewer prompt", filePath: "/roles/reviewer.md", source: "bundled" },
-		},
 		skills: { cpp: skill("cpp"), python: skill("python") },
 		diagnostics: [],
 	};
@@ -45,7 +41,7 @@ test("untagged todos run without an Agent Skill", () => {
 	const task = todo();
 	const invocation = implementerInvocation(stateWith(task), task, content());
 	assert.deepEqual(invocation.skillPaths, []);
-	assert.match(invocation.systemPrompt, /^Implementer prompt/);
+	assert.match(invocation.systemPrompt, /^# Workflow Protocol/);
 	assert.doesNotMatch(invocation.task, /\[unassigned\]/);
 });
 
@@ -187,4 +183,8 @@ test("reviewers receive only the current revision files and diff", () => {
 	assert.doesNotMatch(invocation.task, /one\.ts/);
 	assert.doesNotMatch(invocation.task, /diff one/);
 	assert.doesNotMatch(invocation.task, /human checkpoint only/);
+});
+
+test("extracts the structured workflow response protocol", () => {
+	assert.deepEqual(extractProtocolJson('<workflow-review>{"verdict":"approve"}</workflow-review>', "workflow-review"), { verdict: "approve" });
 });

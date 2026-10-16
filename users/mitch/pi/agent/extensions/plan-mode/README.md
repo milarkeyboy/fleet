@@ -15,8 +15,9 @@ Codex-style plan mode for pi.
 
 ## Behaviour
 
-When plan mode is enabled, pi disables `edit` and `write`, blocks non-read-only
-bash commands, and gives the model a planning prompt. The model is instructed to
+When plan mode is enabled, pi disables `edit`, `write` and `subagent`, blocks
+non-read-only bash commands, and gives the model a planning prompt. Subagent
+calls are also blocked through codemode, preserving the planning boundary. The model is instructed to
 use the shared `questionnaire` tool when it reaches important decision points.
 
 Once the model outputs a numbered `Plan:` section, the extension extracts it

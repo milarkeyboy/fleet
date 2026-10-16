@@ -2,8 +2,8 @@ import path from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { discoverWorkflowContent, scaffoldWorkflowRoles, type WorkflowContent } from "./content.ts";
-import { createWorkflowSubprocessModelRegistry, formatWorkflowModels, isProviderModel, isWorkflowRole, isWorkflowThinkingLevel, loadWorkflowModelConfig, requireExecutableWorkflowModels, setWorkflowRoleModel, workflowConfigPath, WORKFLOW_THINKING_LEVELS } from "./config.ts";
+import { discoverWorkflowContent, type WorkflowContent } from "./content.ts";
+import { formatWorkflowModels, loadWorkflowConfig, loadWorkflowExecution, resolveWorkflowAgents } from "./config.ts";
 import { diffForHumanCheckpoint } from "./git.ts";
 import { WorkflowOrchestrator } from "./orchestrator.ts";
 import { appendPlanningInstructions, formatWorkflowPlan, resolveSkillTag, submitWorkflowPlan } from "./planner.ts";
@@ -17,7 +17,7 @@ const SUBMIT_PLAN_TOOL = "workflow_submit_plan";
 const DIFF_MESSAGE_TYPE = "workflow-diff";
 const LOCAL_PLANNING_TOOLS = ["read", "bash", "grep", "find", "ls", "download_file", QUESTIONNAIRE_TOOL, SUBMIT_PLAN_TOOL];
 const MCP_ACCESS_TOOLS = new Set(["codemode", "tool_search", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]);
-const DISABLED_PLANNING_TOOLS = new Set(["write", "edit"]);
+const DISABLED_PLANNING_TOOLS = new Set(["write", "edit", "subagent"]);
 
 function helpText(): string {
 	return [
@@ -25,7 +25,6 @@ function helpText(): string {
 		"/workflow execute [step] — start, continue, or force execution from a later todo",
 		"/workflow status|todos — inspect workflow state",
 		"/workflow models — inspect implementer and reviewer model configuration",
-		"/workflow model <implementer|reviewer> <provider/model> [thinking-level] — configure a role model",
 		"/workflow review — inspect and decide the current human checkpoint",
 		"/workflow approve — approve the current todo and continue",
 		"/workflow feedback [text] — send changes through implement/review again",
@@ -33,8 +32,7 @@ function helpText(): string {
 		"/workflow skills — list discovered Agent Skills",
 		"/workflow skill <step> <name|none> — assign or clear a primary skill",
 		"/workflow pause|resume|abort — control execution",
-		"/workflow roles — inspect Markdown content",
-		"/workflow init — scaffold portable workflow roles in .agents/",
+		"/workflow roles — inspect role assignments and discovered skills",
 		"/workflow clear — clear workflow state",
 	].join("\n");
 }
@@ -81,8 +79,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 			sessions: (ctx) => new WorkflowSessionStore(path.join(getAgentDir(), "workflow", "sessions"), ctx.sessionManager.getSessionId(), ctx.cwd),
 			models: async (ctx, signal) => {
 				// Reload a single configuration snapshot for each execution or resumption.
-				const config = await loadWorkflowModelConfig(getAgentDir());
-				return requireExecutableWorkflowModels(config, await createWorkflowSubprocessModelRegistry(signal ?? ctx.signal));
+				return loadWorkflowExecution(getAgentDir(), signal ?? ctx.signal);
 			},
 		});
 	}
@@ -128,18 +125,6 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 			}
 			todo.skillRequest = undefined;
 		}
-	}
-
-	async function scaffold(ctx: ExtensionContext): Promise<void> {
-		if (!ctx.isProjectTrusted()) throw new Error("Trust this project before creating project workflow content.");
-		if (ctx.hasUI) {
-			const ok = await ctx.ui.confirm("Initialize workflow Markdown?", `Copy portable placeholders into ${path.join(ctx.cwd, ".agents")} without overwriting existing files?`);
-			if (!ok) return;
-		}
-		const agents = path.join(ctx.cwd, ".agents");
-		await scaffoldWorkflowRoles(agents);
-		reloadContent(ctx);
-		ctx.ui.notify(`Workflow role placeholders initialized under ${agents}. Existing files were preserved.`, "info");
 	}
 
 	async function abortCurrent(ctx: ExtensionContext): Promise<void> {
@@ -279,11 +264,10 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				if (command === "on") return enablePlanning(ctx);
 				if (command === "off") return disablePlanning(ctx);
 				if (command === "help") return ctx.ui.notify(helpText(), "info");
-				if (command === "init") return await scaffold(ctx);
 				if (command === "roles") {
 					const found = getContent(ctx);
 					return ctx.ui.notify([
-						...Object.entries(found.roles).map(([name, role]) => `${name}: ${role.source} — ${role.filePath}`),
+						...Object.entries(resolveWorkflowAgents(getAgentDir(), await loadWorkflowConfig(getAgentDir()))).map(([role, agent]) => `${role} → ${agent.name}: ${agent.filePath}`),
 						...Object.entries(found.skills).map(([name, skill]) => `${name}: ${skill.source} — ${skill.filePath}`),
 						...(found.diagnostics.length ? ["Diagnostics:", ...found.diagnostics.map((message) => `- ${message}`)] : []),
 					].join("\n"), "info");
@@ -296,22 +280,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				}
 				if (command === "models") {
 					if (rest.length) throw new Error("Usage: /workflow models");
-					const agentDir = getAgentDir();
-					const config = await loadWorkflowModelConfig(agentDir);
-					return ctx.ui.notify(`${formatWorkflowModels(config)}\nconfig: ${workflowConfigPath(agentDir)}`, "info");
-				}
-				if (command === "model") {
-					const [role, model, thinkingLevel] = rest;
-					if (!role || !model || rest.length > 3 || !isWorkflowRole(role)) {
-						throw new Error("Usage: /workflow model <implementer|reviewer> <provider/model> [thinking-level]");
-					}
-					if (!isProviderModel(model)) throw new Error("Model must use a provider/model identifier.");
-					if (thinkingLevel !== undefined && !isWorkflowThinkingLevel(thinkingLevel)) {
-						throw new Error(`Thinking level must be one of: ${WORKFLOW_THINKING_LEVELS.join(", ")}.`);
-					}
-					const agentDir = getAgentDir();
-					const config = await setWorkflowRoleModel(role, model, thinkingLevel, agentDir);
-					return ctx.ui.notify(`Workflow model updated.\n${formatWorkflowModels(config)}\nconfig: ${workflowConfigPath(agentDir)}`, "info");
+					return ctx.ui.notify(formatWorkflowModels(resolveWorkflowAgents(getAgentDir(), await loadWorkflowConfig(getAgentDir()))), "info");
 				}
 				if (command === "status" || command === "todos") return ctx.ui.notify(workflowStatusSummary(state), "info");
 				if (command === "skill") {
@@ -373,7 +342,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 
 	pi.on("tool_call", async (event) => {
 		if (!state.planning) return;
-		if (DISABLED_PLANNING_TOOLS.has(event.toolName)) return { block: true, reason: "Workflow planning blocks built-in file modifications. Use /workflow execute after accepting the plan." };
+		if (DISABLED_PLANNING_TOOLS.has(event.toolName)) return { block: true, reason: "Workflow planning blocks file modifications and subagent delegation. Use /workflow execute after accepting the plan." };
 		if (event.toolName === "bash" && !isReadOnlyPlanningCommand(String((event.input as any).command ?? ""))) {
 			return { block: true, reason: "Workflow planning blocked a non-read-only shell command." };
 		}

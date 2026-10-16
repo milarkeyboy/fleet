@@ -6,17 +6,26 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { loadWorkflowModelConfig, workflowConfigPath, writeWorkflowModelConfig, type CompleteWorkflowModelConfig, type WorkflowModelConfig } from "../config.ts";
+import { loadWorkflowConfig, resolveWorkflowAgents, workflowConfigPath } from "../config.ts";
+import { writeTestAgent } from "../../subagent/test/agents.ts";
 import { WorkflowOrchestrator } from "../orchestrator.ts";
 import { createWorkflowTodos } from "../planner.ts";
-import type { AgentRunOptions } from "../runner.ts";
+import type { AgentRunOptions } from "../../subagent/runner.ts";
 import { WorkflowSessionStore } from "../sessions.ts";
 import { cloneState, createWorkflowState, markWorkflowInterrupted, restoreState, type WorkflowState } from "../state.ts";
 
-function fixture(config: WorkflowModelConfig = {}) {
+type TestConfig = { implementer?: Record<string, unknown>; reviewer?: Record<string, unknown>; "max-review-cycles"?: number };
+
+function configure(root: string, config: TestConfig) {
+	writeTestAgent(root, "implementer", config.implementer);
+	writeTestAgent(root, "reviewer", config.reviewer);
+	writeFileSync(workflowConfigPath(root), JSON.stringify(config["max-review-cycles"] === undefined ? {} : { "max-review-cycles": config["max-review-cycles"] }));
+}
+
+function fixture(config: TestConfig = {}) {
 	const root = mkdtempSync(path.join(os.tmpdir(), "workflow-orchestration-"));
 	mkdirSync(path.dirname(workflowConfigPath(root)), { recursive: true });
-	writeFileSync(workflowConfigPath(root), JSON.stringify({ implementer: { model: "test/impl" }, reviewer: { model: "test/review" }, ...config }));
+	configure(root, config);
 	const cwd = path.join(root, "work");
 	execFileSync("git", ["init", "-q", cwd]);
 	const store = new WorkflowSessionStore(path.join(root, "sessions"), "parent", cwd);
@@ -30,16 +39,16 @@ function fixture(config: WorkflowModelConfig = {}) {
 	function orchestrator(current = state) {
 		return new WorkflowOrchestrator(current, {
 			persist() { saved.push(cloneState(current)); }, updateUi() {}, sessions: () => store,
-			async models() { return await loadWorkflowModelConfig(root) as CompleteWorkflowModelConfig; },
-			content: () => ({ planner: "", skills: {}, diagnostics: [], roles: {
-				implementer: { name: "implementer", body: "Implement.", filePath: "/impl.md", source: "bundled" },
-				reviewer: { name: "reviewer", body: "Review.", filePath: "/review.md", source: "bundled" },
-			} }),
+			async models() {
+				const settings = await loadWorkflowConfig(root);
+				return { ...settings, ...resolveWorkflowAgents(root, settings) };
+			},
+			content: () => ({ planner: "", skills: {}, diagnostics: [] }),
 			async runAgent(options) {
 				calls.push(options);
 				appendFileSync(options.sessionFile, `${JSON.stringify({ type: "message", message: { role: "user", content: options.task } })}\n`);
 				await controls.beforeRun(options);
-				const output = options.roleName === "workflow-implementer"
+				const output = options.systemPrompt.includes("<workflow-implementation>")
 					? '<workflow-implementation>{"status":"completed","summary":"done","filesChanged":[],"tests":[]}</workflow-implementation>'
 					: `<workflow-review>{"verdict":"${verdicts.shift() ?? "approve"}","summary":"reviewed","findings":["Review finding."]}</workflow-review>`;
 				return { exitCode: 0, output, stderr: "", messages: [] };
@@ -79,7 +88,7 @@ test("a one-cycle maximum still implements and reviews before escalating", async
 	try {
 		f.verdicts.push("request_changes");
 		await f.orchestrator().execute(f.ctx);
-		assert.deepEqual(f.calls.map((call) => call.roleName), ["workflow-implementer", "workflow-reviewer"]);
+		assert.deepEqual(f.calls.map((call) => call.roleName), ["implementer", "reviewer"]);
 		assert.equal(f.state.todos[0].automaticReviewCycles, 1);
 		assert.equal(f.state.todos[0].status, "awaiting-user");
 	} finally { f.close(); }
@@ -116,11 +125,11 @@ test("human feedback starts a fresh allowance using reloaded configuration", asy
 		f.verdicts.push("request_changes");
 		const run = f.orchestrator();
 		await run.execute(f.ctx);
-		await writeWorkflowModelConfig({
+		await configure(f.root, {
 			implementer: { model: "test/impl" },
 			reviewer: { model: "test/review" },
 			"max-review-cycles": 3,
-		}, f.root);
+		});
 		f.verdicts.push("request_changes", "request_changes", "request_changes");
 		await run.reviseFromHuman(f.ctx, f.state.todos[0], "Fix the findings.");
 		assert.equal(f.calls.length, 8);
@@ -135,23 +144,23 @@ test("resumed review reloads the maximum while retaining the persisted cycle cou
 	try {
 		let reviews = 0;
 		f.controls.beforeRun = async (options) => {
-			if (options.roleName === "workflow-reviewer" && ++reviews === 2) throw new Error("review disconnected");
+			if (options.roleName === "reviewer" && ++reviews === 2) throw new Error("review disconnected");
 		};
 		f.verdicts.push("request_changes");
 		await f.orchestrator().execute(f.ctx);
 		assert.equal(f.state.todos[0].status, "failed");
 		assert.equal(f.state.todos[0].automaticReviewCycles, 2);
 		const restored = restoreState(cloneState(f.state))!;
-		await writeWorkflowModelConfig({
+		await configure(f.root, {
 			implementer: { model: "test/impl" },
 			reviewer: { model: "test/review" },
 			"max-review-cycles": 2,
-		}, f.root);
+		});
 		f.controls.beforeRun = async () => {};
 		f.verdicts.push("request_changes");
 		await f.orchestrator(restored).execute(f.ctx);
 		assert.equal(f.calls.length, 5);
-		assert.equal(f.calls[4].roleName, "workflow-reviewer");
+		assert.equal(f.calls[4].roleName, "reviewer");
 		assert.equal(restored.todos[0].automaticReviewCycles, 2);
 		assert.equal(restored.todos[0].status, "awaiting-user");
 	} finally { f.close(); }
@@ -163,10 +172,10 @@ test("resumed implementers and reviewers use updated discovery settings", async 
 		f.controls.beforeRun = async () => { throw new Error("implementer disconnected"); };
 		await f.orchestrator().execute(f.ctx);
 		const restored = restoreState(cloneState(f.state))!;
-		await writeWorkflowModelConfig({
+		await configure(f.root, {
 			implementer: { model: "test/impl", "context-file-discovery": false },
 			reviewer: { model: "test/review", "context-file-discovery": true },
-		}, f.root);
+		});
 		f.controls.beforeRun = async () => {};
 		await f.orchestrator(restored).execute(f.ctx);
 		assert.deepEqual(f.calls.map((call) => call.contextFileDiscovery), [undefined, false, true]);
@@ -224,14 +233,14 @@ test("a restored human checkpoint continues the persisted conversations", async 
 test("failed review resumes review without reimplementing completed work", async () => {
 	const f = fixture();
 	try {
-		f.controls.beforeRun = async (options) => { if (options.roleName === "workflow-reviewer") throw new Error("review disconnected"); };
+		f.controls.beforeRun = async (options) => { if (options.roleName === "reviewer") throw new Error("review disconnected"); };
 		await f.orchestrator().execute(f.ctx);
 		assert.equal(f.state.todos[0].status, "failed");
 		assert.deepEqual(f.state.todos[0].checkpoint, { role: "reviewer", revisionIndex: 0 });
 		const restored = restoreState(cloneState(f.state))!;
 		f.controls.beforeRun = async () => {};
 		await f.orchestrator(restored).execute(f.ctx);
-		assert.deepEqual(f.calls.map((call) => call.roleName), ["workflow-implementer", "workflow-reviewer", "workflow-reviewer"]);
+		assert.deepEqual(f.calls.map((call) => call.roleName), ["implementer", "reviewer", "reviewer"]);
 		assert.equal(f.calls[1].sessionFile, f.calls[2].sessionFile);
 		assert.equal(restored.todos[0].attempts, 1);
 		assert.equal(restored.todos[0].status, "awaiting-user");
