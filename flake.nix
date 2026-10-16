@@ -35,6 +35,7 @@
       # Shared default for the current fleet. Change this when adding non-x86
       # machines.
       system = "x86_64-linux";
+      pkgsUnstable = inputs.nixpkgs-unstable.legacyPackages.${system};
 
       # Builds one NixOS system from a top-level host selection file. Each host
       # file chooses its hardware module, users, and shared modules.
@@ -43,7 +44,7 @@
         nixpkgs.lib.nixosSystem {
           inherit system;
           specialArgs = {
-            inherit inputs;
+            inherit inputs pkgsUnstable;
           };
           modules = [
             (./. + "/${hostname}.nix")
@@ -54,7 +55,7 @@
                 useUserPackages = true;
                 backupFileExtension = "backup";
                 extraSpecialArgs = {
-                  inherit inputs;
+                  inherit inputs pkgsUnstable;
                 };
               };
             }

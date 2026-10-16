@@ -1,5 +1,6 @@
 {
   pkgs,
+  pkgsUnstable,
   inputs,
   ...
 }:
@@ -20,7 +21,7 @@
 
 let
   system = pkgs.stdenv.hostPlatform.system;
-  neuralAmpModeler = inputs.nixpkgs-unstable.legacyPackages.${system}.neural-amp-modeler-lv2;
+  neuralAmpModeler = pkgsUnstable.neural-amp-modeler-lv2;
   yabridgePkgs = inputs.yabridge-flake.packages.${system};
   yabridgeWine =
     inputs.yabridge-flake.inputs.nixpkgs.legacyPackages.${system}.wineWow64Packages.staging;
