@@ -42,12 +42,19 @@ test("persists separate role sessions and an execution checkpoint", () => {
 	state.ownerSessionId = "parent-session";
 	const current = todo(1);
 	current.sessions = {
-		implementer: { id: "impl", file: "/sessions/impl.jsonl" },
-		reviewer: { id: "review", file: "/sessions/review.jsonl" },
+		implementer: "11111111-1111-4111-8111-111111111111",
+		reviewer: "22222222-2222-4222-8222-222222222222",
 	};
 	current.checkpoint = { role: "reviewer", revisionIndex: 0 };
 	state.todos = [current];
 	assert.deepEqual(restoreState(JSON.parse(JSON.stringify(state))), state);
+});
+
+test("rejects malformed conversation handles", () => {
+	const state = createWorkflowState();
+	state.todos = [todo(1)];
+	state.todos[0].sessions = { implementer: "invalid-handle" };
+	assert.equal(restoreState(state), undefined);
 });
 
 test("rejects title-only legacy workflow states that cannot recover instructions", () => {
@@ -284,7 +291,8 @@ test("forcing a later todo cancels the active run without recording a failure", 
 
 		const firstRun = orchestrator.execute(ctx);
 		await active;
-		await orchestrator.executeFrom(ctx, 2);
+		await orchestrator.prepareFrom(ctx, 2);
+		await orchestrator.execute(ctx);
 		await firstRun;
 
 		assert.equal(calls, 3);

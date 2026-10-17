@@ -11,7 +11,7 @@ import { Key } from "@earendil-works/pi-tui";
 import { extractTodoItems, isSafeReadOnlyCommand, markCompletedSteps, type TodoItem } from "./utils.ts";
 
 const QUESTIONNAIRE_TOOL = "questionnaire";
-const PLAN_DISABLED_TOOLS = new Set(["edit", "write", "subagent"]);
+const PLAN_DISABLED_TOOLS = new Set(["edit", "write", "subagent", "subagent_delete"]);
 const PLAN_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", QUESTIONNAIRE_TOOL];
 
 interface PlanModeState {
@@ -150,7 +150,7 @@ export default function planMode(pi: ExtensionAPI): void {
   pi.on("tool_call", async (event) => {
     if (!enabled) return;
     if (PLAN_DISABLED_TOOLS.has(event.toolName)) {
-      return { block: true, reason: "Plan mode blocks file modifications and subagent delegation. Accept/execute the plan or run /plan off first." };
+      return { block: true, reason: "Plan mode blocks file modifications, subagent delegation and conversation deletion. Accept/execute the plan or run /plan off first." };
     }
     if (event.toolName === "bash" && !isSafeReadOnlyCommand(String(event.input.command ?? ""))) {
       return { block: true, reason: `Plan mode blocked non-read-only bash command: ${event.input.command}` };

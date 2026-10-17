@@ -47,8 +47,8 @@ explicitly marks it completed manually by forcing execution from a later todo.
 Workflow maps its implementer and reviewer roles to global definitions under
 `<agent-dir>/agents/` (normally `~/.pi/agent/agents/`). Role assignments are
 configured in `workflow/config.json` and default to the same-named definitions.
-The same definitions serve the ad-hoc `subagent` tool. Each Markdown file contains the prompt and
-frontmatter settings for its explicit model, thinking level, tools and context
+The same definitions serve the ad-hoc `subagent` tool. Each Markdown file contains
+the prompt and frontmatter settings for its explicit model, thinking level, tools and context
 discovery. See [Subagents](../subagent/README.md) for the format and shared API.
 
 Edit agent files to change their settings, or edit the workflow configuration to
@@ -98,7 +98,8 @@ Planning uses the top-level session's selected model, conversation, context
 files, and normal system prompt. While planning is active, the extension appends
 the bundled `content/planner.md`, typed-submission instructions, and the names
 and descriptions of currently discovered skills. Planning blocks built-in `edit`
-and `write` calls, blocks `subagent` delegation, and restricts Bash to read-only
+and `write` calls, blocks `subagent` delegation and conversation deletion, and
+restricts Bash to read-only
 commands, including calls made through `codemode`. The shared `questionnaire`
 tool remains available for important decisions.
 
@@ -132,8 +133,9 @@ applies. Untagged todos execute normally. Skill values must use exact discovered
 names. An unknown explicit skill must be resolved interactively or with
 `/workflow skill N NAME|none` before execution.
 
-Workflow state uses version 7. Older workflows require a new plan. Historical
-state entries and role transcripts remain untouched.
+Workflow state uses version 8. Role sessions are opaque conversation handles.
+Older workflows require a new plan. Historical state entries and role transcripts
+remain untouched.
 
 ## Agent Skills
 
@@ -250,10 +252,11 @@ completion state, role-session references and execution checkpoints.
 
 ### Storage, interruption and cleanup
 
-Role transcripts are private files under
-`<agent-dir>/workflow/sessions/<workflow-id>/`, normally within `~/.pi/agent/`.
-The managed directory records its parent-session ownership. A workflow-wide lease
-prevents concurrent workers from writing the same conversations.
+The shared subagent service owns native transcripts, ownership metadata and locks
+under `<agent-dir>/subagents/`, normally within `~/.pi/agent/`. Workflow state
+stores only opaque handles, scoped to the parent session, workflow and working
+directory. A workflow-wide service lease prevents concurrent workers from writing
+the same conversations. Conversations appear automatically in the shared viewer.
 
 Orderly quit or reload stops and awaits the active subprocess, preserving
 unfinished conversations. On restart, in-flight todos are marked `interrupted`;
@@ -271,7 +274,7 @@ inspection of the lock path reported in the error before removing that lock.
 Approval, manual completion and abort delete the finished todo's role transcripts.
 Clearing or replacing a plan deletes that workflow's transcripts after workers
 stop. Summaries, feedback and cached diffs remain in retained parent-session
-entries; small ownership metadata files remain in the managed directory.
+entries. Full clear also removes allocations interrupted before state persistence.
 Missing or invalid established transcripts cause an error rather than silently
 starting an empty conversation. Clear the workflow and submit a new plan to
 recover.
@@ -287,7 +290,7 @@ Agent prompts and model/tool settings now live together in
 `<agent-dir>/agents/<name>.md`. Move any personal prompt customisations into
 those files. Workflow configuration holds role-to-agent mappings and the review
 limit; `/workflow models` and `roles` inspect the resolved assignments.
-Submit a new plan for workflows saved before state version 7. Replanning leaves
+Submit a new plan for workflows saved before state version 8. Replanning leaves
 historical transcripts and artefacts available for manual inspection.
 
 ## Tests
@@ -297,7 +300,7 @@ installed Node-based Pi API, deterministic subprocess peers and temporary
 workspaces. Session-format and compaction checks exercise the real SDK without
 calling a provider.
 
-Real-model isolation and conversational-continuity tests are opt-in:
+Real-model conversational-continuity tests are opt-in:
 
 ```sh
 PI_WORKFLOW_E2E=1 PI_WORKFLOW_E2E_MODEL=provider/model npm test

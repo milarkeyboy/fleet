@@ -1,7 +1,7 @@
 // Subprocess arguments, persisted conversation transport, and cancellation.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -94,17 +94,108 @@ test("cancelling a subprocess waits for exit and removes its abort listener", ()
 		const result = subprocess(file, "cancel");
 		assert.equal(result.ok, false);
 		assert.equal(result.listeners, 0);
+		assert.equal(result.result.stopReason, "aborted");
+		assert.equal(result.processes[0], 0);
+		assert.ok(result.processes[1] > 0);
+		assert.equal(result.processes.at(-1), null);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+for (const outcome of ["non-zero", "model-error", "length"]) {
+	test(`${outcome} failures preserve partial output and usage`, () => {
+		const dir = mkdtempSync(path.join(os.tmpdir(), "subagent-runner-"));
+		try {
+			const file = path.join(dir, "session.jsonl");
+			writeFileSync(file, '{"type":"session"}\n');
+			const response = subprocess(file, outcome);
+			assert.equal(response.ok, false);
+			assert.equal(response.result.output, "first run");
+			assert.equal(response.result.usage.totalTokens, 5);
+			assert.equal(response.result.usage.reasoning, 1);
+		} finally { rmSync(dir, { recursive: true, force: true }); }
+	});
+}
 
-test("ad-hoc subprocesses explicitly use an in-memory session", () => {
-	const args = buildAgentArgs({ ...options([]), sessionFile: undefined }, "/tmp/role.md");
-	assert.equal(args.includes("--no-session"), true);
-	assert.equal(args.includes("--session"), false);
+test("compaction usage contributes to the child token and cost totals", () => {
+	const dir = mkdtempSync(path.join(os.tmpdir(), "subagent-runner-"));
+	try {
+		const file = path.join(dir, "session.jsonl");
+		writeFileSync(file, '{"type":"session"}\n');
+		const response = subprocess(file, "compaction");
+		assert.equal(response.result.usage.input, 10);
+		assert.equal(response.result.usage.output, 5);
+		assert.equal(response.result.usage.totalTokens, 15);
+		assert.equal(response.result.usage.cost.total, 0.3);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("independent ephemeral subprocesses start with fresh conversations", () => {
-	assert.deepEqual(subprocess("ephemeral", "remember-this"), { ok: true, output: "first run", listeners: 0 });
-	assert.deepEqual(subprocess("ephemeral", "recall"), { ok: true, output: "first run", listeners: 0 });
+test("interrupted streams retain delta output and cumulative usage", () => {
+	const dir = mkdtempSync(path.join(os.tmpdir(), "subagent-runner-"));
+	try {
+		const file = path.join(dir, "session.jsonl");
+		writeFileSync(file, '{"type":"session"}\n');
+		const response = subprocess(file, "stream-partial");
+		assert.equal(response.ok, false);
+		assert.equal(response.result.output, "partial\u2028answer");
+		assert.equal(response.result.usage.totalTokens, 5);
+		assert.equal(response.result.messages.at(-1).content[0].thinking, "Consider carefully.");
+		assert.deepEqual(response.result.messages.at(-1).content[2].arguments, { path: "source.ts" });
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("an incomplete response fails even when the subprocess exits successfully", () => {
+	const dir = mkdtempSync(path.join(os.tmpdir(), "subagent-runner-"));
+	try {
+		const file = path.join(dir, "session.jsonl");
+		writeFileSync(file, '{"type":"session"}\n');
+		const response = subprocess(file, "stream-partial-zero");
+		assert.equal(response.ok, false);
+		assert.equal(response.result.exitCode, 0);
+		assert.equal(response.result.stopReason, "error");
+		assert.equal(response.result.output, "partial\u2028answer");
+		assert.equal(response.result.usage.totalTokens, 5);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("raw JSON and stderr observers receive progress despite observer exceptions", () => {
+	const dir = mkdtempSync(path.join(os.tmpdir(), "subagent-runner-"));
+	try {
+		const file = path.join(dir, "session.jsonl");
+		writeFileSync(file, '{"type":"session"}\n');
+		const response = subprocess(file, "stream-observer-error");
+		assert.equal(response.ok, true);
+		assert.equal(response.events.filter((event: string) => event === "message_update").length, 4);
+		assert.ok(response.events.includes("tool_execution_end"));
+		assert.equal(response.stderr.join(""), "fixture diagnostic\n");
+		assert.equal(response.processes[0], 0);
+		assert.ok(response.processes[1] > 0);
+		assert.equal(response.processes.at(-1), null);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("aborted streams retain partial text and usage", () => {
+	const dir = mkdtempSync(path.join(os.tmpdir(), "subagent-runner-"));
+	try {
+		const file = path.join(dir, "session.jsonl");
+		writeFileSync(file, '{"type":"session"}\n');
+		const response = subprocess(file, "stream-cancel");
+		assert.equal(response.ok, false);
+		assert.equal(response.result.stopReason, "aborted");
+		assert.equal(response.result.output, "partial\u2028answer");
+		assert.equal(response.result.usage.totalTokens, 5);
+		assert.equal(response.listeners, 0);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("cancellation terminates shell descendants before returning", { skip: process.platform === "win32" }, async () => {
+	const dir = mkdtempSync(path.join(os.tmpdir(), "subagent-runner-"));
+	try {
+		const file = path.join(dir, "session.jsonl");
+		writeFileSync(file, '{"type":"session"}\n');
+		const response = subprocess(file, "stream-cancel-tree");
+		assert.equal(response.ok, false);
+		assert.equal(response.result.stopReason, "aborted");
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		assert.equal(existsSync(`${file}.descendant`), false);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

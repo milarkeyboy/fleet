@@ -40,92 +40,159 @@ catalogue, global model/authentication files or inherited environment.
 Parent-only provider registrations and runtime `--api-key` overrides cannot
 supply isolated subprocesses.
 
-## Ad-hoc delegation and skills
+## Conversation lifecycle
 
-Ask Pi to delegate a task, or have a skill instruct it to call:
+A handle identifies a durable conversation. Each invocation launches a short-lived
+Pi subprocess, while the handle remains available for later invocations. Omitting
+a handle creates a fresh conversation; supplying a handle continues its history.
 
-```json
-{
-  "agent": "reviewer",
-  "task": "Review the authentication changes against these requirements: ..."
-}
-```
+Conversations belong to a parent session, creator and working directory.
+The service owns native session files, metadata, locks and transcript observation
+under `<agent-dir>/subagents/`. Handles expose no storage paths. Completing,
+failing or cancelling a run, closing Pi and switching sessions preserve the
+conversation. Only its creator explicitly deletes it; there is no automatic pruning.
 
-Each `subagent` call runs one fresh, non-persisted conversation in the parent's
-working directory. Supply the requirements and relevant context explicitly.
-The child receives its global prompt and settings, plus the task.
+Workflow owns its role handles and deletes them after todo completion or explicit
+discard. Ad-hoc tools manage the parent's separate ad-hoc handles. Both kinds
+appear in the viewer for that parent. Forking a parent creates a different owner;
+it grants no authority to continue or delete the original parent's conversations.
 
-Skills can describe multi-stage flows using several calls. Codemode can call
-the tool directly:
+## Ad-hoc tools and skills
+
+`subagent({ agent, task, handle? })` delegates one task. The selected definition
+is supplied on each invocation, so a conversation can continue with a different
+agent profile. Supply requirements and relevant context explicitly.
+
+The result includes `handle`, bounded `output` and an optional `error`.
+The handle also appears in the textual result. Codemode receives structured data:
 
 ```javascript
-const result = await tools.subagent({
-  agent: "reviewer",
-  task: "Review the current authentication changes and return actionable findings."
+const first = await tools.subagent({
+  agent: "worker",
+  task: "Investigate the authentication failure and explain the cause."
 });
-text(result);
+text(first);
+const followUp = await tools.subagent({
+  agent: "worker",
+  handle: first.handle,
+  task: "Apply the proposed fix and validate it."
+});
+text(followUp);
 ```
 
-Callers choose sequential or concurrent execution and are responsible for
-conflicting edits and stale reads. Children share the host working tree.
-Workflow's conversation leases protect its own transcripts; ad-hoc calls use
-independent conversations and can overlap workflow execution.
+- `subagent_list({})` returns the current parent's owned ad-hoc conversations.
+  Use it after resuming a parent to discover earlier handles.
+- `subagent_delete({ handle })` permanently deletes an owned ad-hoc conversation.
+  Active runs must finish or be stopped first. Workflow owns deletion of its handles.
 
-Workflow planning and the standalone plan-mode extension block delegation,
-including calls through codemode. Leaving planning restores the tool.
+Skills can describe flows using these tools. Callers choose sequential or
+concurrent execution and remain responsible for conflicting edits and stale
+reads in the shared host worktree. Runs on the same handle are exclusive.
+Planning modes block delegation and conversation deletion, including codemode calls.
 
-## TypeScript execution
+## Read-only TUI
 
-A sibling extension can use the shared modules directly from commands, tools or
-lifecycle handlers:
+Open `/subagents` or press `Ctrl+Alt+A` while idle or working. The picker lists
+the current parent and its saved subagent conversations, including workflow role
+conversations during human review. Selecting the parent returns to its normal UI.
+Selecting a child opens a full-screen transcript without switching Pi sessions.
+
+| Control | Behaviour |
+|---|---|
+| Up/Down, Enter | Select a conversation |
+| Up/Down, PageUp/PageDown | Scroll a transcript |
+| Home | Go to the beginning and pause following |
+| End | Follow the newest output |
+| `o` or the tools-expansion key (normally Ctrl+O) | Expand/collapse tool arguments and results |
+| `t` or the thinking-toggle key (normally Ctrl+T) | Expand/collapse recorded thinking |
+| `i` | Expand/collapse delegated and recorded system instructions |
+| Escape or Ctrl+C | Transcript → picker → parent |
+
+Messages and tool activity update live. Scrolling upwards pauses following;
+reaching the bottom or pressing End resumes it. Provider-exposed thinking is
+shown when available; withheld reasoning cannot be reconstructed. A deleted
+conversation already on screen remains readable until the view closes.
+
+The viewer sends no prompts, controls no subprocesses and changes no session
+files. Closing it leaves execution running. It is available in terminal mode;
+other modes receive a notification. Reload and session changes close the viewer
+and release subscriptions.
+
+## TypeScript lifecycle API
+
+A sibling extension can create and reuse its own handles:
 
 ```typescript
+import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { discoverAgents, requireAgent } from "../subagent/agents.ts";
-import { runSubagent } from "../subagent/api.ts";
+import { getConversationService } from "../subagent/api.ts";
 import { createSubprocessModelRegistry, requireExecutableAgents } from "../subagent/models.ts";
 
+const service = getConversationService(path.join(getAgentDir(), "subagents"));
+const owner = {
+  parentSessionId: ctx.sessionManager.getSessionId(),
+  creator: "my-extension",
+  cwd: ctx.cwd,
+};
 const agent = requireAgent(discoverAgents(getAgentDir()), "reviewer");
 await requireExecutableAgents([agent], await createSubprocessModelRegistry(signal));
-const result = await runSubagent(agent, {
-  cwd: ctx.cwd,
+const handle = service.create(owner, "Review authentication");
+const result = await service.run(owner, handle, agent, {
   task: "Review the supplied assignment.",
   signal,
 });
+// Persist handle in caller state for later invocations; delete when policy requires.
+service.delete(owner, handle);
 ```
 
-`runSubagent()` applies the shared definition. Callers can supply additional
-`instructions`, explicit `skillPaths`, a persistent `sessionFile`, progress
-callbacks and process-ownership tracking. The caller owns persistent session
-creation, locking, resumption and deletion. Workflow retains those responsibilities,
-along with its review protocol, revision limits, diffs and human checkpoints.
+`run()` accepts additional `instructions`, explicit `skillPaths`, progress
+callbacks and an abort signal. `get()` and `hasHistory()` validate owned handles.
+`list()` lists a creator's conversations, and `deleteOwned()` releases its
+conversations, including allocations interrupted before caller-state persistence.
+`acquire()` provides explicit group coordination where callers require several
+conversations to execute sequentially, as workflow does.
 
-Inside another tool's `execute()` handler, Pi also supports
-`ctx.executeTool("subagent", { agent, task }, { signal })`. Nested calls pass
-through Pi's validation and tool hooks. Command and ordinary lifecycle contexts
-use the shared modules directly.
+`listParent()`, `inspect()` and `subscribe()` supply read-only observations
+across creators for the parent viewer. Live state is shared across independent
+Pi extension loads. Integrations need no viewer-specific events or file access.
 
-## Execution and results
+Inside another tool's `execute()` handler,
+`ctx.executeTool("subagent", { agent, task, handle }, { signal })` also works
+through Pi's validation and tool hooks.
 
-Children use JSON mode, disable extension/skill/prompt-template discovery and
-explicitly load the Bash-policy extension. Workflow supplies selected skill paths;
-ad-hoc calls start with an empty skill selection. Context-file discovery follows
-the agent definition.
+## Execution, recovery and privacy
 
-The tool reports progress and accumulated child usage. Model-facing results are
-capped at 50 KiB, with full results and failure diagnostics retained in tool
-details. Failed model responses, truncated responses and non-zero exits report
-failure. Cancellation waits for child shutdown and removes temporary prompts.
-On POSIX hosts the runner terminates the child's process group so shell
-descendants are included. Session shutdown, reload, tree navigation and forking
-cancel active ad-hoc calls.
+Children use native session files and JSON mode. They disable extension, skill
+and prompt-template discovery and explicitly load Bash policy. Workflow supplies
+selected skill paths; ad-hoc calls start with an empty skill selection.
+Context-file discovery follows the agent definition.
 
-Subprocesses run with the user's host permissions. Tool selection and the Bash
-policy are guardrails; operating-system isolation requires a separate boundary.
+The tool reports accumulated child usage. Textual output is capped at 50 KiB;
+full results remain in tool details and the transcript. Model errors, truncated
+responses and non-zero exits report failure while retaining the handle and
+available partial output. Native history and recovery data reconcile streamed
+messages with completed records.
+
+Closing or changing the parent stops active ad-hoc children and preserves their
+handles. Workflow stops its own invocations. On POSIX hosts cancellation
+terminates the process group, including shell descendants. After abrupt exits,
+live workers and unresolved launch fences block unsafe reuse or deletion.
+Inspect the reported lease path before manual recovery.
+
+Transcripts can contain prompts, file contents, command output and secrets exposed
+to the model. Managed files are private and ignored by Git. Subprocesses retain
+the user's host permissions; tool restrictions and Bash policy are guardrails,
+with operating-system isolation supplied separately.
 
 ## Tests
 
-Run `npm test` in this directory and in `../workflow`. Tests use the installed
-Node-based Pi API and deterministic child processes, with no model requests.
-The test loader recognises conventional npm/Nix installations and
-`PI_PACKAGE_DIR`. Workflow's real-model tests remain opt-in.
+Run `npm test` in this directory and `../workflow`. Tests use the installed
+Node-based Pi API and deterministic subprocess peers without model requests.
+The loader recognises npm/Nix installations and `PI_PACKAGE_DIR`.
+Workflow's real-model tests remain opt-in.
+
+The lifecycle API and workflow state version 8 replace file-based caller
+references. Existing workflows need a new plan; earlier transcripts remain
+untouched. Ad-hoc runs made before durable handles were introduced cannot be
+reconstructed retrospectively.

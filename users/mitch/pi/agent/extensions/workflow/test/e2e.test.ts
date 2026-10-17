@@ -1,109 +1,64 @@
-// Opt-in real-model checks for subprocess isolation and persisted conversations.
+// Opt-in provider-backed conversation continuity through workflow handles.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
-import { promisify } from "node:util";
 import path from "node:path";
 import test from "node:test";
-import { runAgent, type AgentRunOptions } from "../../subagent/runner.ts";
-import { createWorkflowTodos } from "../planner.ts";
+import { runAgent } from "../../subagent/runner.ts";
 import { WorkflowSessionStore } from "../sessions.ts";
 import { createWorkflowState } from "../state.ts";
+import { createWorkflowTodos } from "../planner.ts";
 import { installedPi } from "../../subagent/test/pi.ts";
 
-const execFileAsync = promisify(execFile);
-const enabled = process.env.PI_WORKFLOW_E2E === "1";
-const model = process.env.PI_WORKFLOW_E2E_MODEL;
 const pi = installedPi();
+const model = process.env.PI_WORKFLOW_E2E_MODEL;
+const enabled = process.env.PI_WORKFLOW_E2E === "1";
 
-async function runInstalled(options: AgentRunOptions) {
-	const script = process.argv[1];
-	// runAgent reuses the host CLI entry point; the node:test entry point is a test script.
-	process.argv[1] = pi!.cli;
-	try { return await runAgent(options); }
-	finally { process.argv[1] = script; }
-}
-
-function roleSession(cwd: string, root: string) {
+test("workflow subprocesses isolate extensions and enforce the bash policy", { skip: !enabled || !model || !pi }, async () => {
+	const root = mkdtempSync(path.join(os.tmpdir(), "workflow-e2e-isolation-"));
+	const sentinel = path.join(root, "extension-loaded");
 	const state = createWorkflowState();
-	state.ownerSessionId = "test-parent";
-	state.todos = createWorkflowTodos([{ title: "Test", instructions: ["Complete the test."] }]);
-	const store = new WorkflowSessionStore(root, "test-parent", cwd);
+	state.ownerSessionId = "parent";
+	state.todos = createWorkflowTodos([{ title: "Check policy", instructions: ["Check policy."] }]);
+	const store = new WorkflowSessionStore(path.join(root, "subagents"), "parent", root);
 	const lease = store.acquire(state);
-	return { session: store.prepare(state, state.todos[0], "implementer").session, lease };
-}
-async function exists(filePath: string): Promise<boolean> {
+	const script = process.argv[1];
 	try {
-		await readFile(filePath);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-// This test intentionally uses a real Pi subprocess. It is opt-in because it
-// requires a configured model, but does not require QEMU or a filesystem sandbox.
-test("workflow implementer isolates extensions and enforces the bash policy", { skip: !enabled || !model || !pi }, async () => {
-	const cwd = await mkdtemp(path.join(os.tmpdir(), "workflow-e2e-"));
-	const sentinel = path.join(cwd, `.pi-extension-loaded-${process.pid}-${Date.now()}`);
-	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-e2e-sessions-"));
-	const { session, lease } = roleSession(cwd, root);
-	try {
-		await mkdir(path.join(cwd, ".pi", "extensions"), { recursive: true });
-		// Discovery would load this extension unless the runner's extension
-		// isolation is active. Its only observable behavior is a host-side marker.
-		await writeFile(
-			path.join(cwd, ".pi", "extensions", "sentinel.ts"),
-			`import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(sentinel)}, "loaded"); export default function () {}`, 
-		);
-		await writeFile(path.join(cwd, ".gitignore"), "");
-		await execFileAsync("git", ["init", "-q", cwd]);
-
-		const result = await runInstalled({
-			cwd,
-			sessionFile: session.file,
-			onProcess: lease.setChildPid,
-			roleName: "workflow-implementer",
-			systemPrompt: `You are a workflow implementer. Validate your work with focused checks. End with exactly one machine-readable block: <workflow-implementation>{"status":"completed|blocked","summary":"...","filesChanged":[],"tests":[]}</workflow-implementation>.`,
-			task: `Run git status --short. Then use the bash tool to run exactly this command: git push origin main. Do not substitute another command and do not retry it. Report the tool result, then end with the required workflow-implementation block.`,
-			skillPaths: [],
-			tools: ["read", "grep", "find", "ls", "bash", "edit", "write"],
-			model: model!,
-		});
-
-		assert.equal(await exists(sentinel), false, "a discovered repository extension was loaded");
-		const deniedBash = result.messages.some((message: any) => {
-			if (message?.role !== "toolResult") return false;
-			const serialized = JSON.stringify(message);
-			return /Bash policy denied|destructive Git operation/i.test(serialized);
-		});
-		assert.equal(deniedBash, true, "the bash policy did not deny git push");
+		mkdirSync(path.join(root, ".pi", "extensions"), { recursive: true });
+		writeFileSync(path.join(root, ".pi", "extensions", "sentinel.ts"), `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(sentinel)}, "loaded"); export default function () {}`);
+		process.argv[1] = pi!.cli;
+		const { handle } = store.prepare(state, state.todos[0], "implementer");
+		const agent = { name: "implementer", body: "Follow the task exactly.", model: model!, tools: ["read", "bash"] } as any;
+		const result = await store.run(state, handle, agent, { task: "Use bash to run exactly git push origin main. Do not retry or substitute commands. Report the tool result.", onProcess: lease.setChildPid }, runAgent);
+		assert.equal(existsSync(sentinel), false);
+		assert.equal(result.messages.some((message: any) => message.role === "toolResult" && /Bash policy denied|destructive Git operation/i.test(JSON.stringify(message))), true);
 	} finally {
+		process.argv[1] = script;
 		lease.release();
-		await rm(root, { recursive: true, force: true });
-		await rm(cwd, { recursive: true, force: true });
+		rmSync(root, { recursive: true, force: true });
 	}
 });
 
-test("a new Pi subprocess recalls an earlier turn from its role session", { skip: !enabled || !model || !pi }, async () => {
-	const cwd = await mkdtemp(path.join(os.tmpdir(), "workflow-e2e-memory-"));
-	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-e2e-sessions-"));
-	const { session, lease } = roleSession(cwd, root);
+test("a later invocation recalls the same workflow role conversation", { skip: !enabled || !model || !pi }, async () => {
+	const root = mkdtempSync(path.join(os.tmpdir(), "workflow-e2e-"));
+	const state = createWorkflowState();
+	state.ownerSessionId = "parent";
+	state.todos = createWorkflowTodos([{ title: "Remember", instructions: ["Remember a phrase."] }]);
+	const store = new WorkflowSessionStore(path.join(root, "subagents"), "parent", root);
+	const lease = store.acquire(state);
+	const script = process.argv[1];
 	try {
+		process.argv[1] = pi!.cli;
+		const { handle } = store.prepare(state, state.todos[0], "implementer");
+		const agent = { name: "implementer", body: "Remember phrases. Answer directly without tools.", model: model!, tools: ["read"] } as any;
 		const phrase = `workflow-${randomUUID()}`;
-		const options = {
-			cwd, roleName: "workflow-implementer", sessionFile: session.file, model: model!,
-			systemPrompt: "Remember phrases supplied by the user. Answer requests directly without using tools.",
-			skillPaths: [], tools: ["read"], onProcess: lease.setChildPid,
-		};
-		await runInstalled({ ...options, task: `Remember this phrase for my next request: ${phrase}. Reply with OK.` });
-		const recalled = await runInstalled({ ...options, task: "Reply with only the exact phrase I asked you to remember earlier." });
+		await store.run(state, handle, agent, { task: `Remember ${phrase}. Reply OK.`, onProcess: lease.setChildPid }, runAgent);
+		const recalled = await store.run(state, handle, agent, { task: "Reply with only the exact phrase.", onProcess: lease.setChildPid }, runAgent);
 		assert.equal(recalled.output.trim(), phrase);
 	} finally {
+		process.argv[1] = script;
 		lease.release();
-		await rm(root, { recursive: true, force: true });
-		await rm(cwd, { recursive: true, force: true });
+		rmSync(root, { recursive: true, force: true });
 	}
 });

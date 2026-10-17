@@ -28,14 +28,18 @@ for (const [role, invoke] of [["implementer", implementerInvocation], ["reviewer
 			const snapshot = invoke(state, todo, content).systemPrompt;
 			const store = new WorkflowSessionStore(root, "parent", root);
 			const lease = store.acquire(state);
-			const { session } = store.prepare(state, todo, role);
-			const manager = SessionManager.open(session.file, root);
-			assert.equal(manager.getSessionId(), session.id);
+			const { handle } = store.prepare(state, todo, role);
+			let sessionFile = "";
+			await store.run(state, handle, { name: role, body: "", model: "test/model", tools: ["read"] } as any, { task: "Prepare compaction check." }, async (options) => {
+				sessionFile = options.sessionFile;
+				return { exitCode: 0, output: "Prepared.", stderr: "", messages: [] };
+			});
+			const manager = SessionManager.open(sessionFile, root);
 			assert.equal(manager.getCwd(), root);
 			manager.appendMessage({ role: "system", content: snapshot, sections: { preamble: snapshot }, toolsAdded: [], timestamp: 1 });
 			manager.appendMessage({ role: "user", content: "Old conversation-only detail.", timestamp: 2 });
 			manager.appendCompaction("A summary that omits requirements.", null, 10000);
-			const reopened = SessionManager.open(session.file, root);
+			const reopened = SessionManager.open(sessionFile, root);
 			const messages = reopened.buildSessionContext().messages;
 			const system = messages.find((message: any) => message.role === "system");
 			assert.match(system.content, /Preserve the public API\./);

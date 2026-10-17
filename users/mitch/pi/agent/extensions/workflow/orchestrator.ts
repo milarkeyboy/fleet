@@ -3,7 +3,6 @@ import { DEFAULT_MAX_REVIEW_CYCLES, type CompleteWorkflowConfig } from "./config
 import type { WorkflowContent } from "./content.ts";
 import { extractProtocolJson, implementerInvocation, reviewerInvocation, validateImplementation, validateReview } from "./context.ts";
 import { diffForHumanCheckpoint, diffTrees, snapshotWorktree } from "./git.ts";
-import { runSubagent } from "../subagent/api.ts";
 import type { runAgent } from "../subagent/runner.ts";
 import { WorkflowSessionStore, type WorkflowLease } from "./sessions.ts";
 import { completeTodosManuallyBefore, currentTodo, isWorkflowComplete, latestRevision, nextPendingTodo, type ImplementationResult, type ReviewResult, type WorkflowRevision, type WorkflowState, type WorkflowTodo } from "./state.ts";
@@ -90,7 +89,7 @@ export class WorkflowOrchestrator {
 			return;
 		}
 		const store = this.store(ctx);
-		const lease = store.acquire(this.state, true);
+		const lease = store.acquire(this.state);
 		try { for (const todo of todos) store.deleteTodo(this.state, todo); }
 		finally { lease.release(); }
 	}
@@ -99,11 +98,7 @@ export class WorkflowOrchestrator {
 		if (this.running) throw new Error("Stop the workflow before deleting its sessions.");
 		if (!this.state.ownerSessionId) return;
 		const store = this.store(ctx);
-		if (!store.hasDirectory(this.state)) {
-			for (const todo of this.state.todos) { todo.sessions = undefined; todo.checkpoint = undefined; }
-			return;
-		}
-		const lease = store.acquire(this.state, true);
+		const lease = store.acquire(this.state);
 		try { store.deleteWorkflow(this.state); }
 		finally { lease.release(); }
 	}
@@ -128,7 +123,7 @@ export class WorkflowOrchestrator {
 		});
 	}
 
-	async executeFrom(ctx: ExtensionContext, targetStep: number): Promise<void> {
+	async prepareFrom(ctx: ExtensionContext, targetStep: number): Promise<void> {
 		const selected = currentTodo(this.state) ?? nextPendingTodo(this.state);
 		const target = this.state.todos.find((todo) => todo.step === targetStep);
 		if (!selected) throw new Error("There is no current workflow todo to bypass.");
@@ -148,7 +143,6 @@ export class WorkflowOrchestrator {
 			this.changed(ctx);
 			ctx.ui.notify(`Marked todo${completed.length === 1 ? "" : "s"} ${completed.map((todo) => todo.step).join(", ")} completed manually. Starting todo ${targetStep}.`, "info");
 		} finally { this.stopping = false; }
-		await this.execute(ctx);
 	}
 
 	async reviseFromHuman(ctx: ExtensionContext, todo: WorkflowTodo, feedback: string): Promise<void> {
@@ -216,8 +210,8 @@ export class WorkflowOrchestrator {
 					signal.throwIfAborted();
 					try {
 						const { systemPrompt, ...assignment } = implementerInvocation(this.state, todo, content, { continuing: prepared.hasHistory, interrupted });
-						const run = await runSubagent(models.implementer, {
-							cwd: ctx.cwd, sessionFile: prepared.session.file, ...assignment, instructions: systemPrompt,
+						const run = await store.run(this.state, prepared.handle, models.implementer, {
+							...assignment, instructions: systemPrompt,
 							signal, onProcess: lease.setChildPid,
 						}, this.hooks.runAgent);
 						signal.throwIfAborted();
@@ -240,8 +234,8 @@ export class WorkflowOrchestrator {
 					const prepared = store.prepare(this.state, todo, "reviewer");
 					this.changed(ctx);
 					const { systemPrompt, ...assignment } = reviewerInvocation(this.state, todo, content, { continuing: prepared.hasHistory, interrupted });
-					const run = await runSubagent(models.reviewer, {
-						cwd: ctx.cwd, sessionFile: prepared.session.file, ...assignment, instructions: systemPrompt,
+					const run = await store.run(this.state, prepared.handle, models.reviewer, {
+						...assignment, instructions: systemPrompt,
 						signal, onProcess: lease.setChildPid,
 					}, this.hooks.runAgent);
 					signal.throwIfAborted();

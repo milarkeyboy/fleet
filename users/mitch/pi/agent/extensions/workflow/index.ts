@@ -17,7 +17,7 @@ const SUBMIT_PLAN_TOOL = "workflow_submit_plan";
 const DIFF_MESSAGE_TYPE = "workflow-diff";
 const LOCAL_PLANNING_TOOLS = ["read", "bash", "grep", "find", "ls", "download_file", QUESTIONNAIRE_TOOL, SUBMIT_PLAN_TOOL];
 const MCP_ACCESS_TOOLS = new Set(["codemode", "tool_search", "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]);
-const DISABLED_PLANNING_TOOLS = new Set(["write", "edit", "subagent"]);
+const DISABLED_PLANNING_TOOLS = new Set(["write", "edit", "subagent", "subagent_delete"]);
 
 function helpText(): string {
 	return [
@@ -76,7 +76,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 				if (!content) throw new Error("Workflow Markdown content has not been loaded.");
 				return content;
 			},
-			sessions: (ctx) => new WorkflowSessionStore(path.join(getAgentDir(), "workflow", "sessions"), ctx.sessionManager.getSessionId(), ctx.cwd),
+			sessions: (ctx) => new WorkflowSessionStore(path.join(getAgentDir(), "subagents"), ctx.sessionManager.getSessionId(), ctx.cwd),
 			models: async (ctx, signal) => {
 				// Reload a single configuration snapshot for each execution or resumption.
 				return loadWorkflowExecution(getAgentDir(), signal ?? ctx.signal);
@@ -312,7 +312,13 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 						: target?.skillRequest ? target : undefined;
 					if (unresolvedTodo) throw new Error(`Todo ${unresolvedTodo.step} requests unknown Agent Skill "${unresolvedTodo.skillRequest}". Use /workflow skill ${unresolvedTodo.step} <name|none>.`);
 					if (state.planning) disablePlanning(ctx, false);
-					return targetStep === undefined ? await orchestrator.execute(ctx) : await orchestrator.executeFrom(ctx, targetStep);
+					if (targetStep !== undefined) {
+						// Fence cancellation and state changes, then release the guard before the new run.
+						transitioning = true;
+						try { await orchestrator.prepareFrom(ctx, targetStep); }
+						finally { transitioning = false; }
+					}
+					return await orchestrator.execute(ctx);
 				}
 				if (command === "review") return await reviewCurrent(ctx);
 				if (command === "approve") return await approveCurrent(ctx);
@@ -342,7 +348,7 @@ export default function workflowExtension(pi: ExtensionAPI): void {
 
 	pi.on("tool_call", async (event) => {
 		if (!state.planning) return;
-		if (DISABLED_PLANNING_TOOLS.has(event.toolName)) return { block: true, reason: "Workflow planning blocks file modifications and subagent delegation. Use /workflow execute after accepting the plan." };
+		if (DISABLED_PLANNING_TOOLS.has(event.toolName)) return { block: true, reason: "Workflow planning blocks file modifications, subagent delegation and conversation deletion. Use /workflow execute after accepting the plan." };
 		if (event.toolName === "bash" && !isReadOnlyPlanningCommand(String((event.input as any).command ?? ""))) {
 			return { block: true, reason: "Workflow planning blocked a non-read-only shell command." };
 		}

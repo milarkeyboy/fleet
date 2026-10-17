@@ -4,7 +4,7 @@ import test from "node:test";
 import planMode from "../../plan-mode/index.ts";
 
 function fixture() {
-	let activeTools = ["read", "bash", "edit", "write", "subagent", "codemode"];
+	let activeTools = ["read", "bash", "edit", "write", "subagent", "subagent_delete", "codemode"];
 	const handlers: Record<string, any> = {}, commands: Record<string, any> = {};
 	planMode({
 		registerFlag() {}, registerShortcut() {}, appendEntry() {},
@@ -22,6 +22,15 @@ test("planning blocks both direct and codemode subagent calls", async () => {
 	assert.equal(f.activeTools().includes("subagent"), false);
 	for (const parentToolCallId of [undefined, "codemode-call"]) {
 		assert.equal((await f.handlers.tool_call({ toolName: "subagent", input: { agent: "reviewer", task: "Review." }, parentToolCallId }))?.block, true);
+	}
+});
+
+test("planning blocks direct and codemode conversation deletion", async () => {
+	const f = fixture();
+	await f.command("on");
+	assert.equal(f.activeTools().includes("subagent_delete"), false);
+	for (const parentToolCallId of [undefined, "codemode-call"]) {
+		assert.equal((await f.handlers.tool_call({ toolName: "subagent_delete", input: { handle: "handle" }, parentToolCallId }))?.block, true);
 	}
 });
 

@@ -2,8 +2,9 @@
 auth.json
 agent/mcp-auth.json
 
-# Sessions are per-machine
+# Sessions and subagent conversations are private per-machine state.
 sessions/
+agent/subagents/
 
 # No need for logs
 pi-debug.log

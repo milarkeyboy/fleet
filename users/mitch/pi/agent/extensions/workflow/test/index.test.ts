@@ -64,7 +64,7 @@ async function fixture(initial?: WorkflowState, initialTools = ["read", "bash", 
 		ui: { notify: (text: string) => notices.push(text), setStatus() {}, setWidget() {}, theme: { fg: (_colour: string, text: string) => text } },
 		runAgent: async (options: any) => {
 			calls.push(options);
-			appendFileSync(options.sessionFile, `${JSON.stringify({ type: "message", message: { role: "user", content: options.task } })}\n`);
+			appendFileSync(options.sessionFile, `${JSON.stringify({ type: "message", id: `user-${calls.length}`, parentId: null, timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: options.task, timestamp: 1 } })}\n`);
 			await control.beforeRun(options);
 			return { exitCode: 0, stderr: "", messages: [], output: options.systemPrompt.includes("<workflow-implementation>")
 				? '<workflow-implementation>{"status":"completed","summary":"done","filesChanged":[],"tests":[]}</workflow-implementation>'
@@ -161,6 +161,55 @@ test("planning still blocks local writes and unsafe Bash calls made through code
 			assert.equal((await f.handlers.tool_call({ toolName: "bash", input: { command: "touch changed.txt" }, parentToolCallId }, f.ctx))?.block, true);
 			assert.equal(await f.handlers.tool_call({ toolName: "bash", input: { command: "git status" }, parentToolCallId }, f.ctx), undefined);
 		}
+	} finally { f.close(); }
+});
+
+test("forced execution fences clear until its cancellation transition finishes", async () => {
+	const f = await fixture();
+	let entered!: () => void, aborted!: () => void, release!: () => void;
+	const started = new Promise<void>(resolve => { entered = resolve; });
+	const stopping = new Promise<void>(resolve => { aborted = resolve; });
+	const cleanup = new Promise<void>(resolve => { release = resolve; });
+	try {
+		f.control.beforeRun = async (options) => {
+			if (f.calls.length !== 1) return;
+			entered();
+			await new Promise<void>((_resolve, reject) => options.signal.addEventListener("abort", () => {
+				aborted(); void cleanup.then(() => reject(new Error("Stopped.")));
+			}, { once: true }));
+		};
+		const execution = f.command("execute");
+		await started;
+		const forced = f.command("execute 2");
+		await stopping;
+		await f.command("clear");
+		assert.match(f.notices.at(-1)!, /transition is already in progress/);
+		release();
+		await Promise.all([execution, forced]);
+		assert.equal(f.state().currentStep, 2);
+		assert.equal(f.state().todos[1].status, "awaiting-user");
+		await f.command("clear");
+		assert.deepEqual(f.state().todos, []);
+	} finally { release(); f.close(); }
+});
+
+test("the new forced run remains abortable after its state transition", async () => {
+	const f = await fixture();
+	let first!: () => void, second!: () => void;
+	const started = new Promise<void>(resolve => { first = resolve; });
+	const restarted = new Promise<void>(resolve => { second = resolve; });
+	try {
+		f.control.beforeRun = async (options) => {
+			(f.calls.length === 1 ? first : second)();
+			await new Promise<void>((_resolve, reject) => options.signal.addEventListener("abort", () => reject(new Error("Stopped.")), { once: true }));
+		};
+		const execution = f.command("execute");
+		await started;
+		const forced = f.command("execute 2");
+		await restarted;
+		await f.command("abort");
+		await Promise.all([execution, forced]);
+		assert.equal(f.state().todos[1].status, "aborted");
 	} finally { f.close(); }
 });
 
@@ -377,6 +426,17 @@ test("plan replacement removes the replaced plan's role sessions", async () => {
 	} finally { f.close(); }
 });
 
+test("workflow planning blocks direct and codemode conversation deletion", async () => {
+	const f = await fixture(undefined, ["read", "subagent_delete", "codemode"]);
+	try {
+		await f.command("on");
+		assert.equal(f.getActiveTools().includes("subagent_delete"), false);
+		for (const parentToolCallId of [undefined, "codemode-call"]) {
+			assert.equal((await f.handlers.tool_call({ toolName: "subagent_delete", input: { handle: "handle" }, parentToolCallId }, f.ctx))?.block, true);
+		}
+	} finally { f.close(); }
+});
+
 test("workflow planning blocks direct and codemode subagent delegation", async () => {
 	const f = await fixture(undefined, ["read", "bash", "edit", "write", "subagent", "codemode"]);
 	try {
@@ -438,6 +498,7 @@ test("changing a role assignment retains its workflow conversation", async () =>
 	try {
 		await f.command("execute");
 		writeTestAgent(f.root, "worker");
+		mkdirSync(path.dirname(workflowConfigPath(f.root)), { recursive: true });
 		writeFileSync(workflowConfigPath(f.root), '{"agents":{"implementer":"worker"}}');
 		await f.command("feedback Apply the revised requirements.");
 		assert.equal(f.calls[2].roleName, "worker");
@@ -464,9 +525,9 @@ test("replanning an older workflow retains its historical role transcripts", asy
 	const f = await fixture();
 	try {
 		await f.command("execute");
-		const transcript = f.state().todos[0].sessions!.implementer!.file;
-		f.entries.at(-1).customType = "workflow-state-v6";
-		f.entries.at(-1).data.version = 6;
+		const transcript = f.calls[0].sessionFile;
+		f.entries.at(-1).customType = "workflow-state-v7";
+		f.entries.at(-1).data.version = 7;
 		await f.restart();
 		assert.deepEqual(f.state().todos, []);
 		assert.equal(f.state().planning, true);

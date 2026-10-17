@@ -1,29 +1,29 @@
 import type { AgentDefinition } from "./agents.ts";
-import { runAgent, type AgentRunOptions, type AgentRunResult } from "./runner.ts";
+import type { AgentRunResult, runAgent } from "./runner.ts";
+import type { ConversationInfo, ConversationSnapshot } from "./viewer-types.ts";
 
-export interface AgentInvocation {
-	cwd: string;
+export interface ConversationOwner { parentSessionId: string; creator: string; cwd: string }
+export interface ConversationInvocation {
 	task: string;
-	sessionFile?: string;
-	/** Caller-owned assignment context and protocols are appended to the shared prompt. */
 	instructions?: string;
 	skillPaths?: string[];
 	signal?: AbortSignal;
-	onUpdate?: AgentRunOptions["onUpdate"];
-	onProcess?: AgentRunOptions["onProcess"];
+	onUpdate?: (text: string) => void;
+	onProcess?: (pid: number | undefined) => void;
 }
-
-export function runSubagent(
-	agent: AgentDefinition,
-	invocation: AgentInvocation,
-	run: typeof runAgent = runAgent,
-): Promise<AgentRunResult> {
-	const { instructions, ...options } = invocation;
-	return run({
-		...options, roleName: agent.name,
-		systemPrompt: [agent.body.trim(), instructions?.trim()].filter(Boolean).join("\n\n---\n\n"),
-		skillPaths: invocation.skillPaths ?? [],
-		model: agent.model, thinkingLevel: agent.thinkingLevel,
-		tools: agent.tools, contextFileDiscovery: agent.contextFileDiscovery,
-	});
+export interface ConversationLease { setChildPid(pid: number | undefined): void; release(): void }
+export interface ConversationService {
+	create(owner: ConversationOwner, label: string): string;
+	get(owner: ConversationOwner, handle: string): ConversationInfo;
+	hasHistory(owner: ConversationOwner, handle: string): boolean;
+	list(owner: ConversationOwner): ConversationInfo[];
+	listParent(parentSessionId: string): ConversationInfo[];
+	inspect(parentSessionId: string, handle: string): ConversationSnapshot;
+	subscribe(parentSessionId: string, listener: () => void): () => void;
+	acquire(owner: ConversationOwner): ConversationLease;
+	run(owner: ConversationOwner, handle: string, agent: AgentDefinition, invocation: ConversationInvocation, run?: typeof runAgent): Promise<AgentRunResult>;
+	delete(owner: ConversationOwner, handle: string): boolean;
+	deleteOwned(owner: ConversationOwner): void;
+	stop(parentSessionId: string): Promise<void>;
 }
+export { getConversationService } from "./service.ts";

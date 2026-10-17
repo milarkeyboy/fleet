@@ -1,161 +1,82 @@
-// Managed workflow transcripts, ownership, and single-writer leases.
+// Workflow's handle adapter delegates storage and ownership to the conversation service.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createWorkflowTodos } from "../planner.ts";
+import { getConversationService } from "../../subagent/api.ts";
 import { WorkflowSessionStore } from "../sessions.ts";
 import { createWorkflowState } from "../state.ts";
+import { createWorkflowTodos } from "../planner.ts";
 
 function fixture() {
 	const root = mkdtempSync(path.join(os.tmpdir(), "workflow-sessions-"));
 	const state = createWorkflowState();
 	state.ownerSessionId = "parent";
 	state.todos = createWorkflowTodos([{ title: "First", instructions: ["Implement first."] }, { title: "Second", instructions: ["Implement second."] }]);
-	const store = new WorkflowSessionStore(root, "parent", "/workspace");
-	return { root, state, store, close: () => rmSync(root, { recursive: true, force: true }) };
+	const store = new WorkflowSessionStore(root, "parent", root);
+	const service = getConversationService(root);
+	const owner = { parentSessionId: "parent", creator: `workflow:${state.id}`, cwd: root };
+	return { root, state, store, service, owner, close: () => rmSync(root, { recursive: true, force: true }) };
 }
 
-test("sessions are private, reused by role, and isolated between todos", () => {
+test("role handles persist and remain isolated between roles and todos", () => {
 	const f = fixture();
 	try {
-		const lease = f.store.acquire(f.state);
 		const first = f.store.prepare(f.state, f.state.todos[0], "implementer");
 		assert.equal(first.hasHistory, false);
-		appendFileSync(first.session.file, '{"type":"message","message":{"role":"user","content":"First assignment"}}\n');
-		assert.deepEqual(f.store.prepare(f.state, f.state.todos[0], "implementer"), { session: first.session, hasHistory: true });
-		assert.notEqual(f.store.prepare(f.state, f.state.todos[0], "reviewer").session.file, first.session.file);
-		assert.notEqual(f.store.prepare(f.state, f.state.todos[1], "implementer").session.file, first.session.file);
-		assert.equal(statSync(first.session.file).mode & 0o777, 0o600);
-		lease.release();
+		assert.equal(f.state.todos[0].sessions?.implementer, first.handle);
+		assert.deepEqual(f.store.prepare(f.state, f.state.todos[0], "implementer"), first);
+		assert.notEqual(f.store.prepare(f.state, f.state.todos[0], "reviewer").handle, first.handle);
+		assert.notEqual(f.store.prepare(f.state, f.state.todos[1], "implementer").handle, first.handle);
 	} finally { f.close(); }
 });
 
-test("missing established transcripts fail instead of creating fresh conversations", () => {
+test("run forwards assignments through the selected agent and retains history", async () => {
 	const f = fixture();
 	try {
-		const lease = f.store.acquire(f.state);
-		const { session } = f.store.prepare(f.state, f.state.todos[0], "implementer");
-		rmSync(session.file);
-		assert.throws(() => f.store.prepare(f.state, f.state.todos[0], "implementer"), /session is missing/);
-		lease.release();
+		const { handle } = f.store.prepare(f.state, f.state.todos[0], "implementer");
+		const result = await f.store.run(f.state, handle, { name: "worker", body: "Agent prompt.", model: "test/model", tools: ["read"] } as any,
+			{ task: "Implement first.", instructions: "Canonical instructions.", skillPaths: ["/skills/check/SKILL.md"] }, async (options) => {
+				assert.equal(options.task, "Implement first.");
+				assert.equal(options.roleName, "worker");
+				assert.match(options.systemPrompt, /Agent prompt\./);
+				assert.match(options.systemPrompt, /Canonical instructions\./);
+				assert.deepEqual(options.skillPaths, ["/skills/check/SKILL.md"]);
+				appendFileSync(options.sessionFile, '{"type":"message","id":"user0001","parentId":null,"timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"user","content":"Implement first.","timestamp":1}}\n');
+				return { exitCode: 0, output: "Done.", stderr: "", messages: [] };
+			});
+		assert.equal(result.output, "Done.");
+		assert.deepEqual(f.store.prepare(f.state, f.state.todos[0], "implementer"), { handle, hasHistory: true });
 	} finally { f.close(); }
 });
 
-test("invalid transcripts are preserved for explicit recovery", () => {
+test("foreign parent sessions cannot allocate or delete workflow conversations", () => {
 	const f = fixture();
 	try {
-		const lease = f.store.acquire(f.state);
-		const { session } = f.store.prepare(f.state, f.state.todos[0], "implementer");
-		writeFileSync(session.file, "broken");
-		assert.throws(() => f.store.prepare(f.state, f.state.todos[0], "implementer"), /session is invalid/);
-		assert.equal(readFileSync(session.file, "utf8"), "broken");
-		lease.release();
+		const foreign = new WorkflowSessionStore(f.root, "other", f.root);
+		assert.throws(() => foreign.prepare(f.state, f.state.todos[0], "implementer"), /ownership changed/);
+		assert.throws(() => foreign.deleteWorkflow(f.state), /ownership changed/);
 	} finally { f.close(); }
 });
 
-test("live leases prevent concurrent execution and cleanup", () => {
+test("todo cleanup preserves other todos' handles", () => {
 	const f = fixture();
 	try {
-		const lease = f.store.acquire(f.state);
-		assert.throws(() => f.store.acquire(f.state), /process still owns/);
-		lease.setChildPid(process.pid);
-		lease.release();
-		lease.release();
-		f.store.acquire(f.state).release();
-	} finally { f.close(); }
-});
-
-test("stale leases are reclaimed after both recorded processes exit", () => {
-	const f = fixture();
-	try {
-		f.store.acquire(f.state).release();
-		const dead = spawnSync(process.execPath, ["-e", ""]).pid;
-		const file = path.join(f.root, f.state.id, "run.lock");
-		writeFileSync(file, JSON.stringify({ token: "old", pid: dead, childPid: dead }));
-		f.store.acquire(f.state).release();
-		assert.equal(existsSync(file), false);
-	} finally { f.close(); }
-});
-
-test("surviving children block recovery after their parent has exited", () => {
-	const f = fixture();
-	try {
-		f.store.acquire(f.state).release();
-		const dead = spawnSync(process.execPath, ["-e", ""]).pid;
-		writeFileSync(path.join(f.root, f.state.id, "run.lock"), JSON.stringify({ token: "old", pid: dead, childPid: process.pid }));
-		assert.throws(() => f.store.acquire(f.state), /process still owns/);
-	} finally { f.close(); }
-});
-
-test("an ambiguous interrupted launch requires inspection rather than risking a second worker", () => {
-	const f = fixture();
-	try {
-		f.store.acquire(f.state).release();
-		const dead = spawnSync(process.execPath, ["-e", ""]).pid;
-		writeFileSync(path.join(f.root, f.state.id, "run.lock"), JSON.stringify({ token: "old", pid: dead, childPid: 0 }));
-		assert.throws(() => f.store.acquire(f.state), /stopped during child launch/);
-	} finally { f.close(); }
-});
-
-test("foreign owners cannot acquire or delete workflow sessions", () => {
-	const f = fixture();
-	try {
-		const lease = f.store.acquire(f.state);
-		const { session } = f.store.prepare(f.state, f.state.todos[0], "implementer");
-		lease.release();
-		const other = new WorkflowSessionStore(f.root, "fork", "/workspace");
-		assert.throws(() => other.acquire(f.state), /ownership changed/);
-		assert.throws(() => other.deleteWorkflow(f.state), /ownership changed/);
-		assert.equal(existsSync(session.file), true);
-	} finally { f.close(); }
-});
-
-test("cleanup rejects references outside the owned role path", () => {
-	const f = fixture();
-	try {
-		const lease = f.store.acquire(f.state);
-		const { session } = f.store.prepare(f.state, f.state.todos[0], "implementer");
-		const original = session.file;
-		session.file = path.join(f.root, "unrelated.jsonl");
-		writeFileSync(session.file, "keep");
-		assert.throws(() => f.store.deleteTodo(f.state, f.state.todos[0]), /outside its owned path/);
-		assert.equal(readFileSync(session.file, "utf8"), "keep");
-		assert.equal(existsSync(original), true);
-		lease.release();
-	} finally { f.close(); }
-});
-
-test("cleanup refuses symlinked transcripts", () => {
-	const f = fixture();
-	try {
-		const lease = f.store.acquire(f.state);
-		const { session } = f.store.prepare(f.state, f.state.todos[0], "implementer");
-		rmSync(session.file);
-		const target = path.join(f.root, "keep.txt");
-		writeFileSync(target, "keep");
-		symlinkSync(target, session.file);
-		assert.throws(() => f.store.deleteTodo(f.state, f.state.todos[0]), /regular file/);
-		assert.equal(readFileSync(target, "utf8"), "keep");
-		lease.release();
-	} finally { f.close(); }
-});
-
-test("todo cleanup retains other todos and recorded revision summaries", () => {
-	const f = fixture();
-	try {
-		const lease = f.store.acquire(f.state);
-		const first = f.store.prepare(f.state, f.state.todos[0], "implementer").session.file;
-		const second = f.store.prepare(f.state, f.state.todos[1], "reviewer").session.file;
-		f.state.todos[0].revisions = [{ humanFeedback: "Keep the fix.", changedFiles: ["one.ts"] }];
+		f.store.prepare(f.state, f.state.todos[0], "implementer");
+		const second = f.store.prepare(f.state, f.state.todos[1], "reviewer");
 		f.store.deleteTodo(f.state, f.state.todos[0]);
-		assert.equal(existsSync(first), false);
-		assert.equal(existsSync(second), true);
-		assert.deepEqual(f.state.todos[0].revisions, [{ humanFeedback: "Keep the fix.", changedFiles: ["one.ts"] }]);
+		assert.equal(f.state.todos[0].sessions, undefined);
+		assert.equal(f.service.list(f.owner).length, 1);
+		assert.equal(f.state.todos[1].sessions?.reviewer, second.handle);
+	} finally { f.close(); }
+});
+
+test("full cleanup removes allocations absent from workflow state", () => {
+	const f = fixture();
+	try {
+		f.service.create(f.owner, "Interrupted allocation");
 		f.store.deleteWorkflow(f.state);
-		assert.equal(existsSync(second), false);
-		lease.release();
+		assert.deepEqual(f.service.list(f.owner), []);
 	} finally { f.close(); }
 });

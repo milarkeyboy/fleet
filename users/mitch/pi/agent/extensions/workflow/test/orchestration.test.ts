@@ -28,7 +28,7 @@ function fixture(config: TestConfig = {}) {
 	configure(root, config);
 	const cwd = path.join(root, "work");
 	execFileSync("git", ["init", "-q", cwd]);
-	const store = new WorkflowSessionStore(path.join(root, "sessions"), "parent", cwd);
+	const store = new WorkflowSessionStore(path.join(root, "subagents"), "parent", cwd);
 	const ctx = { cwd, ui: { notify() {} } } as unknown as ExtensionContext;
 	const state = createWorkflowState();
 	state.todos = createWorkflowTodos([{ title: "First", instructions: ["Implement first."] }, { title: "Second", instructions: ["Implement second."] }]);
@@ -46,7 +46,7 @@ function fixture(config: TestConfig = {}) {
 			content: () => ({ planner: "", skills: {}, diagnostics: [] }),
 			async runAgent(options) {
 				calls.push(options);
-				appendFileSync(options.sessionFile, `${JSON.stringify({ type: "message", message: { role: "user", content: options.task } })}\n`);
+				appendFileSync(options.sessionFile, `${JSON.stringify({ type: "message", id: `user-${calls.length}`, parentId: null, timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: options.task, timestamp: 1 } })}\n`);
 				await controls.beforeRun(options);
 				const output = options.systemPrompt.includes("<workflow-implementation>")
 					? '<workflow-implementation>{"status":"completed","summary":"done","filesChanged":[],"tests":[]}</workflow-implementation>'
