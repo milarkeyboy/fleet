@@ -16,6 +16,19 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
+-- Wrap C++ comments while typing, leaving code line lengths unchanged.
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "cpp",
+  callback = function()
+    -- Comments width
+    vim.opt_local.textwidth = 80
+    vim.opt_local.formatoptions:append("c")
+
+    -- Disable normal text (code) wrapping, leaving that to LSPs and the like.
+    vim.opt_local.formatoptions:remove("t")
+  end,
+})
+
 -- Resize windows when neovim itself is resized:
 -- https://neovim.io/doc/user/autocmd/#VimResized
 vim.cmd(":autocmd VimResized * wincmd =")
