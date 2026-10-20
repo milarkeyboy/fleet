@@ -1,8 +1,8 @@
 {
   "agents": {
-    "implementer": "implementer",
+    "implementer": "dumb-implementer",
     "design-reviewer": "design-reviewer",
-    "code-reviewer": "reviewer"
+    "code-reviewer": "code-reviewer"
   },
   "max-review-cycles": 4
 }

@@ -28,7 +28,14 @@ Unless explicitly asked:
 
 ### Writing Code
 
-### Comments and Documentation
+#### Don't Mimic
+
+With the exception of whitespace and naming conventions, don't mimic the code
+around the changes you're making. Always write code that you think best
+represents these instructions. Just because the code is already there doesn't
+mean it's the best source of truth for how future code should be written.
+
+#### Comments and Documentation
 
 - Add comments to explain blocks of code at a high level. Don't describe each
   individual operation within a block, but rather what their sum achieves and
@@ -64,7 +71,7 @@ Unless explicitly asked:
   makes sense to begin with. If a comment can be corrected by simply replacing
   a few words, then do that instead of rewriting the whole thing.
 
-### Writing Tests
+#### Writing Tests
 
 Avoid re-implementing the code under test within the test cases. Tests should
 aim to be as simple as possible for auditing by inspection. The format of

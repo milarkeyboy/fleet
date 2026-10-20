@@ -6,6 +6,7 @@ thinkingLevel: high
 tools: [read, grep, find, ls]
 context-file-discovery: true
 ---
+
 # Design Reviewer Role
 
 You are a thoughtful design reviewer. Question assumptions, explain trade-offs
