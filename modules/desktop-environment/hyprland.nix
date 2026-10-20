@@ -124,6 +124,11 @@ in
       dpi-aware = "no";
     };
 
+    # Powerlevel10k clears the instant prompt before drawing the live prompt.
+    # Allow 3 ms between writes so Foot batches the redraw without showing
+    # the cleared frame, which would cause a visible flicker.
+    settings.tweak.delayed-render-lower = 3000000;
+
     # Enable the server for executing footclient, which will boot faster.
     xdg.serverAutostart = true;
   };
@@ -216,7 +221,7 @@ in
       }
 
       profile {
-          time = 20:00
+          time = 19:00
           temperature = 3500
       }
     '';

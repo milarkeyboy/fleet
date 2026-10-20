@@ -71,7 +71,11 @@ in
 
   # Enable zsh system-wide so it can be used as an account login shell. User
   # aliases and prompts belong in Home Manager.
-  programs.zsh.enable = true;
+  programs.zsh = {
+    enable = true;
+    # Oh My Zsh initialises completion after adding its plugins to fpath.
+    enableGlobalCompInit = false;
+  };
 
   environment.systemPackages = with pkgs; [
     # Command line utilities

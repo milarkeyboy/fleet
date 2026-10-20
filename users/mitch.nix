@@ -13,7 +13,7 @@
     shell = pkgs.zsh;
   };
 
-  home-manager.users.mitch = { config, ... }: {
+  home-manager.users.mitch = { config, lib, ... }: {
     home.username = "mitch";
     home.homeDirectory = "/home/mitch";
     home.stateVersion = "26.05";
@@ -71,9 +71,18 @@
           file = "share/zsh-powerlevel10k/powerlevel10k.zsh-theme";
         }
       ];
-      initContent = ''
-        source ${./mitch/p10k.zsh}
-      '';
+      initContent = lib.mkMerge [
+        (lib.mkOrder 500 ''
+          # Display the cached prompt before plugins and completion initialise.
+          # This ensures a nice speedy zsh prompt.
+          if [[ -r "''${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-''${(%):-%n}.zsh" ]]; then
+            source "''${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-''${(%):-%n}.zsh"
+          fi
+        '')
+        ''
+          source ${./mitch/p10k.zsh}
+        ''
+      ];
 
       autosuggestion.enable = true;
       syntaxHighlighting.enable = true;
