@@ -6,26 +6,24 @@ vim.o.expandtab = true
 vim.o.shiftwidth = 4
 vim.o.tabstop = 4
 
--- Keep Markdown prose at a review-friendly line length while typing.
-vim.api.nvim_create_autocmd("FileType", {
-  pattern = "markdown",
-  callback = function()
-    vim.opt_local.textwidth = 80
-    -- Allow wrapping as I'm typing.
-    vim.opt_local.formatoptions:append("t")
-  end,
-})
+-- Keep Meson buffers using the editor's indentation defaults.
+vim.g.meson_recommended_style = false
 
--- Wrap C++ comments while typing, leaving code line lengths unchanged.
-vim.api.nvim_create_autocmd("FileType", {
-  pattern = "cpp",
-  callback = function()
-    -- Comments width
-    vim.opt_local.textwidth = 80
-    vim.opt_local.formatoptions:append("c")
+local prose_filetypes = { "markdown", "gitcommit" }
 
-    -- Disable normal text (code) wrapping, leaving that to LSPs and the like.
-    vim.opt_local.formatoptions:remove("t")
+-- Wrap prose and other filetypes' comments while typing.
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "*",
+  callback = function(event)
+    vim.opt_local.textwidth = 80
+    if vim.tbl_contains(prose_filetypes, event.match) then
+      vim.opt_local.formatoptions:append("t")
+    else
+      vim.opt_local.formatoptions:append("c")
+
+      -- Leave code formatting to LSPs and the like.
+      vim.opt_local.formatoptions:remove("t")
+    end
   end,
 })
 
