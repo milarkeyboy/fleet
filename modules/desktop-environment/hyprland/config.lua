@@ -22,6 +22,10 @@ hl.config({
         resize_on_border = true,
     },
     animations = { enabled = false },
+    binds = {
+        -- Navigate group tabs before neighbouring windows.
+        movefocus_cycles_groupfirst = true,
+    },
     dwindle = {
         -- Split on the right or bottom.
         force_split = 2,
@@ -67,10 +71,42 @@ hl.bind(mod .. " + SHIFT + P", hl.dsp.exec_cmd("fleet-clipboard select"))
 hl.bind(mod .. " + CTRL + P", hl.dsp.exec_cmd("fleet-clipboard clear"))
 hl.bind("PRINT", hl.dsp.exec_cmd("grimblast copy area"))
 
+-- Reorder horizontal tabs until their edge, then extract the window towards the layout.
+local function move_window(direction)
+    local window = hl.get_active_window()
+    if not window then
+        return
+    end
+
+    local group = window.group
+    if not group then
+        hl.dispatch(hl.dsp.window.move({ direction = direction, group_aware = true }))
+
+        -- Enter horizontal groups at the edge facing the window's original position.
+        group = window.group
+        if group and (direction == "l" or direction == "r") then
+            local target_index = direction == "r" and 1 or group.size
+            for _ = 1, math.abs(target_index - group.current_index) do
+                hl.dispatch(hl.dsp.group.move_window({ forward = direction == "l" }))
+            end
+        end
+        return
+    end
+
+    if (direction == "l" and group.current_index > 1)
+        or (direction == "r" and group.current_index < group.size) then
+        hl.dispatch(hl.dsp.group.move_window({ forward = direction == "r" }))
+    else
+        hl.dispatch(hl.dsp.window.move({ out_of_group = direction }))
+    end
+end
+
 -- Keep arrow and vim keys equivalent for window selection and movement.
 for key, direction in pairs({ LEFT = "l", DOWN = "d", UP = "u", RIGHT = "r", H = "l", J = "d", K = "u", L = "r" }) do
     hl.bind(mod .. " + " .. key, hl.dsp.focus({ direction = direction }))
-    hl.bind(mod .. " + SHIFT + " .. key, hl.dsp.window.move({ direction = direction }))
+    hl.bind(mod .. " + SHIFT + " .. key, function()
+        move_window(direction)
+    end)
 end
 
 -- Zero selects workspace ten.
@@ -81,6 +117,9 @@ for workspace = 1, 10 do
 end
 
 hl.bind(mod .. " + F", hl.dsp.window.fullscreen())
+
+-- Create a tabbed group or dissolve the focused window's group.
+hl.bind(mod .. " + W", hl.dsp.group.toggle())
 
 -- Floating and scratchpad.
 hl.bind(mod .. " + SHIFT + SPACE", hl.dsp.window.float({ action = "toggle" }))
