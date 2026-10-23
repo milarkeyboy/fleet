@@ -142,6 +142,7 @@ in
     lxqt.pcmanfm-qt
     playerctl
     rofi
+    swaynotificationcenter
     wireplumber
     wl-clipboard
     xdg-utils
@@ -184,14 +185,37 @@ in
       [Default Applications]
       inode/directory=pcmanfm-qt.desktop;
     '';
-    "xdg/mako/config".text = ''
-      font=JetBrainsMono Nerd Font Mono 11
-      background-color=#20242b
-      text-color=#eeeeee
-      border-color=#356859
-      default-timeout=5000
-      [urgency=critical]
-      default-timeout=0
+    "xdg/swaync/config.json".text = builtins.toJSON {
+      timeout = 5;
+      timeout-low = 5;
+      timeout-critical = 0;
+      widgets = [
+        "title"
+        "dnd"
+        "notifications"
+      ];
+      widget-config.title = {
+        text = "Notifications";
+        clear-all-button = true;
+        button-text = "Clear All";
+      };
+    };
+    # Override the packaged theme colours while retaining its widget styling.
+    "xdg/swaync/style.css".text = ''
+      @import url("${pkgs.swaynotificationcenter}/etc/xdg/swaync/style.css");
+
+      * {
+        font-family: "JetBrainsMono Nerd Font Mono";
+      }
+
+      :root {
+        --cc-bg: #20242b;
+        --noti-bg: 32, 36, 43;
+        --noti-bg-alpha: 1;
+        --noti-border-color: #356859;
+        --text-color: #eeeeee;
+        --bg-selected: #356859;
+      }
     '';
     "xdg/hypr/hyprlock.conf".text = ''
       general {
@@ -258,6 +282,7 @@ in
         "custom/blue-light"
         "idle_inhibitor"
         "tray"
+        "custom/notification"
         "clock"
       ];
       "hyprland/submap" = {
@@ -322,14 +347,33 @@ in
           deactivated = "Idle";
         };
       };
+      # The count includes retained notifications until they are dismissed.
+      "custom/notification" = {
+        exec = "${pkgs.swaynotificationcenter}/bin/swaync-client --subscribe-waybar";
+        return-type = "json";
+        format = "{icon} {0}";
+        format-icons = {
+          none = "Notifs";
+          notification = "Notifs";
+          dnd-none = "DND";
+          dnd-notification = "DND";
+          inhibited-none = "Muted";
+          inhibited-notification = "Muted";
+          dnd-inhibited-none = "DND";
+          dnd-inhibited-notification = "DND";
+        };
+        on-click = "${pkgs.swaynotificationcenter}/bin/swaync-client --toggle-panel --skip-wait";
+        on-click-right = "${pkgs.swaynotificationcenter}/bin/swaync-client --toggle-dnd --skip-wait";
+        exec-on-event = false;
+      };
       tray.spacing = 8;
     };
   };
 
-  # Mako ships its own graphical-session-aware unit but has no NixOS module.
-  systemd.packages = [ pkgs.mako ];
+  # SwayNC ships its own graphical-session-aware unit but has no NixOS module.
+  systemd.packages = [ pkgs.swaynotificationcenter ];
   systemd.user.services = {
-    mako.wantedBy = [ "graphical-session.target" ];
+    swaync.wantedBy = [ "graphical-session.target" ];
     hyprsunset =
       (sessionService "Hyprland blue light filter" {
         ExecStart = lib.getExe hyprsunset;

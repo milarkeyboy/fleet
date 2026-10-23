@@ -25,15 +25,22 @@ window#waybar {
 }
 
 #submap, #pulseaudio, #network, #bluetooth,
-#battery, #backlight, #custom-blue-light, #idle_inhibitor, #tray, #clock {
+#battery, #backlight, #custom-blue-light, #idle_inhibitor, #tray,
+#custom-notification, #clock {
     padding: 0 8px;
 }
 
 #idle_inhibitor.activated,
-#custom-blue-light.enabled {
+#custom-blue-light.enabled,
+#custom-notification.dnd-none,
+#custom-notification.dnd-notification,
+#custom-notification.dnd-inhibited-none,
+#custom-notification.dnd-inhibited-notification {
     color: #e5c07b;
 }
 
-#custom-blue-light.unavailable {
+#custom-blue-light.unavailable,
+#custom-notification.inhibited-none,
+#custom-notification.inhibited-notification {
     color: #999999;
 }
