@@ -33,7 +33,10 @@ TEST(GravyTests, GravyIsYum)
 
 ## Doxygen
 
-- Use triple slashes (`///`).
+- Use triple slashes (`///`) for in-code comments, except where PlantUML
+  diagrams are drawn to allow editor plugins (like VSCode) to render them. In
+  that case, use `/**` and `*/` to block them out.
+- For .dox files, use `/**` at the top of the file, and a `*/` at the bottom.
 - Use `@` symbol for directives.
 
 ## Includes
