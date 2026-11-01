@@ -138,3 +138,5 @@ it. Use the original download rather than manually launching the temporary
     - Constrain agents such that they cannot edit Markdown.
     - Manually edit the READMEs of all extensions, and get an agent to trim off
       the unnecessary functionality.
+- Manage only a subset of the Pi settings that don't need to differ between
+  machines e.g. apply an 'overlay' from Nix.
