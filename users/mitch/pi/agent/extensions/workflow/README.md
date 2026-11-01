@@ -47,7 +47,7 @@ instructions and review; implementers retain normal write and shell tools.
 
 Design review checks consistency, feasibility, missing decisions, scope and
 testability. Code review checks implementation quality and conformance to the
-accepted design. Both reviewers have read/search tools only.
+accepted design. Both reviewers may use read/search tools and read-only Git access.
 
 Further design edits can be submitted with `design-review` again. All reviews
 in a design phase share its original baseline and role conversation.
@@ -153,8 +153,11 @@ Workflow-specific settings live in `<agent-dir>/workflow/config.json`:
 
 The defaults map implementation to `implementer`, design review to
 `design-reviewer`, and code review to the existing `reviewer` profile.
-Customise each mapping independently. Both reviewer roles require read/search
-tools only; incompatible profiles stop execution before workflow state changes.
+Customise each mapping independently. Both reviewer roles accept `read`, `grep`,
+`find`, `ls` and `git_inspect`; incompatible profiles stop execution before workflow
+state changes. `git_inspect` provides read-only Git `status`, `diff`, `log`, `show`
+and `blame` through structured parameters; arbitrary shell commands and Git options
+are rejected.
 `/workflow models` and `/workflow roles` show the resolved mappings.
 
 `max-review-cycles` is a positive safe integer, defaulting to `2`. It counts the
@@ -198,7 +201,8 @@ Each todo owns separate persisted role conversations. Revisions and retries
 reuse them; subsequent todos start fresh conversations. Each invocation uses a
 short-lived Pi JSON subprocess with `--session`, `--no-extensions`, `--no-skills`
 and explicit selected skills, plus `--no-prompt-templates`. The host bash-policy
-extension is loaded explicitly.
+extension is loaded explicitly, alongside `../git-inspect/index.ts` only for profiles
+whose tools include `git_inspect`.
 
 Authoritative system snapshots preserve the current plan, assignment, human
 requirements and accepted design through compaction. Historical conversations

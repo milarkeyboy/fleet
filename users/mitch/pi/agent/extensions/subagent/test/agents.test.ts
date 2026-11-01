@@ -32,6 +32,10 @@ test("accepts comma-separated tool names", () => {
 	assert.deepEqual(parseAgent(markdown.replace("[read, grep]", "read, grep"), "/agents/reviewer.md").tools, ["read", "grep"]);
 });
 
+test("accepts git_inspect in agent tool profiles", () => {
+	assert.deepEqual(parseAgent(markdown.replace("[read, grep]", "[read, git_inspect]"), "/agents/reviewer.md").tools, ["read", "git_inspect"]);
+});
+
 test("requires a fully qualified model assignment", () => {
 	assert.throws(() => parseAgent(markdown.replace("openrouter/anthropic/claude", "claude"), "/agents/reviewer.md"), /explicit provider\/model/);
 });

@@ -15,7 +15,7 @@ name: reviewer
 description: Independently review code changes and report actionable findings.
 model: openai-codex/gpt-6.1-sol
 thinkingLevel: high
-tools: [read, grep, find, ls]
+tools: [read, grep, find, ls, git_inspect]
 context-file-discovery: true
 ---
 You are an independent reviewer. Inspect the supplied changes and report
@@ -25,7 +25,9 @@ concrete findings with file paths.
 - `name` must match the filename and use lowercase letters, numbers and hyphens.
 - `description`, an explicit `provider/model` assignment and a prompt are required.
 - `tools` is a non-empty YAML list or comma-separated string drawn from `read`,
-  `grep`, `find`, `ls`, `bash`, `edit` and `write`.
+  `grep`, `find`, `ls`, `git_inspect`, `bash`, `edit` and `write`.
+  `git_inspect` provides read-only Git `status`, `diff`, `log`, `show` and `blame`
+  through structured parameters; arbitrary shell commands and Git options are rejected.
 - `thinkingLevel` accepts `off`, `minimal`, `low`, `medium`, `high`, `xhigh`
   or `max`; omission selects `off`, including for resumed conversations.
 - `context-file-discovery` defaults to `true`. Set it to `false` to disable
@@ -164,8 +166,9 @@ through Pi's validation and tool hooks.
 ## Execution, recovery and privacy
 
 Children use native session files and JSON mode. They disable extension, skill
-and prompt-template discovery and explicitly load Bash policy. Workflow supplies
-selected skill paths; ad-hoc calls start with an empty skill selection.
+and prompt-template discovery and explicitly load Bash policy. They also explicitly
+load `../git-inspect/index.ts` only when the profile includes `git_inspect`.
+Workflow supplies selected skill paths; ad-hoc calls start with an empty skill selection.
 Context-file discovery follows the agent definition.
 
 The tool reports accumulated child usage. Textual output is capped at 50 KiB;

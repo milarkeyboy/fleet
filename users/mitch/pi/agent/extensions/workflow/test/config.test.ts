@@ -56,6 +56,29 @@ test("workflow requires an independently read-only reviewer", async () => {
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
+for (const role of ["design-reviewer", "code-reviewer"] as const) {
+	test(`${role} accepts git_inspect alongside read/search tools`, async () => {
+		const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
+		try {
+			writeWorkflowTestAgents(root);
+			writeTestAgent(root, "auditor", { tools: ["read", "grep", "find", "ls", "git_inspect"] });
+			const roles = resolveWorkflowAgents(root, { agents: { [role]: "auditor" } });
+			assert.deepEqual(roles[role].tools, ["read", "grep", "find", "ls", "git_inspect"]);
+		} finally { await rm(root, { recursive: true, force: true }); }
+	});
+
+	for (const tool of ["bash", "edit", "write"]) {
+		test(`${role} rejects ${tool} even alongside git_inspect`, async () => {
+			const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
+			try {
+				writeWorkflowTestAgents(root);
+				writeTestAgent(root, "auditor", { tools: ["read", "git_inspect", tool] });
+				assert.throws(() => resolveWorkflowAgents(root, { agents: { [role]: "auditor" } }), new RegExp(`${role} tools must remain read-only`));
+			} finally { await rm(root, { recursive: true, force: true }); }
+		});
+	}
+}
+
 test("loads configured role mappings from the workflow file", async () => {
 	const root = await mkdtemp(path.join(os.tmpdir(), "workflow-config-"));
 	writeWorkflowTestAgents(root);

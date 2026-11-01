@@ -61,8 +61,8 @@ export function resolveWorkflowAgents(agentDir: string, settings: WorkflowConfig
 	const found = discoverAgents(agentDir);
 	return Object.fromEntries(WORKFLOW_ROLES.map((role) => {
 		const agent = requireAgent(found, settings.agents?.[role] ?? DEFAULT_AGENTS[role]);
-		if (role !== "implementer" && agent.tools.some((tool) => !["read", "grep", "find", "ls"].includes(tool))) {
-			throw new Error(`Workflow ${role} tools must remain read-only: read, grep, find, ls. Edit ${agent.filePath}.`);
+		if (role !== "implementer" && agent.tools.some((tool) => !["read", "grep", "find", "ls", "git_inspect"].includes(tool))) {
+			throw new Error(`Workflow ${role} tools must remain read-only: read, grep, find, ls, git_inspect. Edit ${agent.filePath}.`);
 		}
 		return [role, agent];
 	})) as Record<WorkflowRole, AgentDefinition>;

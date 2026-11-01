@@ -3,7 +3,7 @@ name: design-reviewer
 description: Independently review human-authored designs and explain trade-offs.
 model: openai-codex/gpt-6.1-sol
 thinkingLevel: high
-tools: [read, grep, find, ls]
+tools: [read, grep, find, ls, git_inspect]
 context-file-discovery: true
 ---
 

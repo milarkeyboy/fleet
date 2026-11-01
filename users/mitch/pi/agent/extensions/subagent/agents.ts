@@ -4,7 +4,7 @@ import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = typeof THINKING_LEVELS[number];
-const TOOLS = new Set(["read", "grep", "find", "ls", "bash", "edit", "write"]);
+const TOOLS = new Set(["read", "grep", "find", "ls", "git_inspect", "bash", "edit", "write"]);
 
 export interface AgentDefinition {
 	name: string;

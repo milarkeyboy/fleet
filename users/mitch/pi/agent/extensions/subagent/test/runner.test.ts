@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { BASH_POLICY_EXTENSION_PATH, buildAgentArgs } from "../runner.ts";
+import { BASH_POLICY_EXTENSION_PATH, GIT_INSPECT_EXTENSION_PATH, buildAgentArgs } from "../runner.ts";
 
 function options(skillPaths: string[]) {
 	return {
@@ -48,6 +48,19 @@ test("subagents load the bash policy and no discovered extensions", () => {
 	const args = buildAgentArgs(options([]), "/tmp/role.md");
 	assert.deepEqual(args.filter((arg) => arg === "-e" || arg.endsWith("/bash-policy/index.ts")), ["-e", BASH_POLICY_EXTENSION_PATH]);
 	assert.equal(args.some((arg) => arg.endsWith("/gondolin/index.ts")), false);
+});
+
+test("git_inspect profiles explicitly load Git access alongside Bash policy with discovery disabled", () => {
+	const args = buildAgentArgs({ ...options([]), tools: ["read", "git_inspect"] }, "/tmp/role.md");
+	assert.equal(GIT_INSPECT_EXTENSION_PATH, fileURLToPath(new URL("../../git-inspect/index.ts", import.meta.url)));
+	assert.ok(args.includes("--no-extensions"));
+	assert.deepEqual(args.flatMap((arg, index) => arg === "-e" ? [args[index + 1]] : []), [BASH_POLICY_EXTENSION_PATH, GIT_INSPECT_EXTENSION_PATH]);
+	assert.deepEqual(args.slice(args.indexOf("--tools"), args.indexOf("--tools") + 2), ["--tools", "read,git_inspect"]);
+});
+
+test("profiles without git_inspect omit its extension", () => {
+	const args = buildAgentArgs(options([]), "/tmp/role.md");
+	assert.equal(args.includes(GIT_INSPECT_EXTENSION_PATH), false);
 });
 
 test("omitted thinking levels explicitly reset resumed sessions to off", () => {

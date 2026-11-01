@@ -1,0 +1,12 @@
+{
+  "name": "pi-extension-git-inspect",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --import ../subagent/test/runtime.ts --test test/*.test.ts"
+  },
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}

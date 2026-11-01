@@ -12,5 +12,6 @@
     "+codemode"
   ],
   "hideThinkingBlock": false,
-  "tuiMode": "fullscreen"
+  "tuiMode": "fullscreen",
+  "deviceId": "21d77651-d4b0-44cc-801b-ec5510035199"
 }

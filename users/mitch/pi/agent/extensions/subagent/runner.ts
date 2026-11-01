@@ -44,6 +44,7 @@ export class AgentRunError extends Error {
 // Subagents explicitly load the policy while opting out of extension discovery,
 // so repository and user extensions cannot change the command guardrail.
 export const BASH_POLICY_EXTENSION_PATH = fileURLToPath(new URL("../bash-policy/index.ts", import.meta.url));
+export const GIT_INSPECT_EXTENSION_PATH = fileURLToPath(new URL("../git-inspect/index.ts", import.meta.url));
 
 function invocation(args: string[]): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
@@ -68,6 +69,8 @@ export function buildAgentArgs(options: AgentRunOptions, promptPath: string): st
 		"--session", options.sessionFile,
 		"--no-extensions",
 		"-e", BASH_POLICY_EXTENSION_PATH,
+		// Load optional tools explicitly so the profile retains control of Git access.
+		...(options.tools.includes("git_inspect") ? ["-e", GIT_INSPECT_EXTENSION_PATH] : []),
 		"--no-skills",
 		...options.skillPaths.flatMap((skillPath) => ["--skill", skillPath]),
 		"--no-prompt-templates",
