@@ -9,6 +9,9 @@ When writing documentation or interacting in a discussion:
 - Avoid deictic language.
 - Don't describe something by stating what it isn't; avoid statements like "X
   is not a Y", and prefer "X is a Z because..."
+- Try to write prose text such that it will wrap at around 80 characters. The
+  width of entire tables are exceptions, but ideally the text within each table
+  column should aim to wrap at a similar limit i.e. 80 characters.
 
 ## YAGNI
 
