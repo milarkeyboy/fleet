@@ -5,8 +5,9 @@
 When writing documentation or interacting in a discussion:
 
 - Use British English.
-- Be concise, avoiding unnecessary descriptors or flavour text.
-- Avoid deictic language.
+- Be concise, avoiding unnecessary descriptors or flavour text. If an entity has
+  a defined term that is used in the current context, use that term and only
+  that term.
 - Don't describe something by stating what it isn't; avoid statements like "X
   is not a Y", and prefer "X is a Z because..."
 - Try to write prose text such that it will wrap at around 80 characters. The
@@ -15,9 +16,9 @@ When writing documentation or interacting in a discussion:
 
 ## YAGNI
 
-Take a "you ain't gonna need it" approach. Only plan or implement the
-feature(s) or change(s) being requested. Avoid unnecessary customisation points
-or "nice-to-haves".
+Take a "you ain't gonna need it" approach to EVERYTHING, ALWAYS. Only plan or
+implement the feature(s) or change(s) being requested. Avoid unnecessary
+customisation points or "nice-to-haves".
 
 ## Break By Default
 
@@ -27,20 +28,52 @@ Unless explicitly asked:
 - Don't keep existing features alive if they're in conflict with the newly
   requested changes.
 - Prefer to just edit the code in place, because we don't want two or more ways
-  to do one thing. Exceptions apply to comments (see below).
+  to do one thing.
 
-### Writing Code
+## Writing Code
 
-#### Don't Mimic
+### Don't Mimic
 
 With the exception of whitespace and naming conventions, don't mimic the code
 around the changes you're making. Always write code that you think best
 represents these instructions. Just because the code is already there doesn't
 mean it's the best source of truth for how future code should be written.
 
-#### Comments and Documentation
+### Break Up Blocks Of Code
 
-- Add comments to explain blocks of code at a high level. Don't describe each
+Use blank lines to break up lines of code into related groups. Groups should be
+small, with comments summarising them. For example:
+
+```python
+def migrate_legacy_settings():
+    # Read the user settings to migrate.
+    legacy_file = Path("user_settings.json")
+    if not legacy_file.exists():
+        # Settings already migrated.
+        return
+    with legacy_file.open("r", encoding="utf-8") as f:
+        legacy_settings = json.load(f)
+
+    # Migrate to the new database.
+    new_settings = {
+        "user_id": legacy_settings["userId"],
+        "preferences": {
+            "theme": legacy_settings.get("theme", "light"),
+            "notifications_enabled": legacy_settings.get("notify", True),
+        },
+    }
+    db.users.stage_settings(new_settings)
+    db.flush()
+
+    # Remove now redundant settings file.
+    legacy_file.unlink()
+```
+
+This applies to all programming languages.
+
+### Comments and Documentation
+
+- Add comments to explain blocks of code at a _high level_. Don't describe each
   individual operation within a block, but rather what their sum achieves and
   (most importantly) why it's being done.
 
@@ -74,7 +107,7 @@ mean it's the best source of truth for how future code should be written.
   makes sense to begin with. If a comment can be corrected by simply replacing
   a few words, then do that instead of rewriting the whole thing.
 
-#### Writing Tests
+### Writing Tests
 
 Avoid re-implementing the code under test within the test cases. Tests should
 aim to be as simple as possible for auditing by inspection. The format of
@@ -100,7 +133,7 @@ in the fixture.
 
 Aim to name and describe the module/fixture/suite containing the test cases as
 generic, even if the test cases contained within are only testing one part of
-the behaviour. That way, other test cases that exercise the same unit under test
+the behaviour. That way, other test cases that exercise the same unit-under-test
 can be added later without invalidating scope of the containing
 module/fixture/suite.
 
