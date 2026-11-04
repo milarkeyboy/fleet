@@ -4,7 +4,8 @@ Repository containing configurations for the machines and working environments
 that I use.
 
 Must be cloned directly in the home directory (for out-of-store symlinks to
-work) i.e. `~/fleet`.
+work) i.e. `~/fleet`. Clone with `--recurse-submodules`, or run
+`git submodule update --init --recursive` afterwards, to fetch bundled skills.
 
 ## Design
 

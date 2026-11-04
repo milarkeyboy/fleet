@@ -1,0 +1,3 @@
+[submodule "users/mitch/agents/skills/deslop"]
+	path = users/mitch/agents/skills/deslop
+	url = https://github.com/stephenturner/skill-deslop.git
