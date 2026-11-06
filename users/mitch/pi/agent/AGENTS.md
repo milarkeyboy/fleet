@@ -2,14 +2,13 @@
 
 ## Communication Style
 
-When writing documentation or interacting in a discussion:
+When writing prose or interacting in a discussion:
 
 - Use British English.
+- Load the `deslop` skill by default, always.
 - Be concise, avoiding unnecessary descriptors or flavour text. If an entity has
   a defined term that is used in the current context, use that term and only
   that term.
-- Don't describe something by stating what it isn't; avoid statements like "X
-  is not a Y", and prefer "X is a Z because..."
 - Try to write prose text such that it will wrap at around 80 characters. The
   width of entire tables are exceptions, but ideally the text within each table
   column should aim to wrap at a similar limit i.e. 80 characters.
