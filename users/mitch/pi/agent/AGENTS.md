@@ -31,12 +31,16 @@ Unless explicitly asked:
 
 ## Writing Code
 
-### Don't Mimic
+### Evaluate Existing Patterns
 
-With the exception of whitespace and naming conventions, don't mimic the code
-around the changes you're making. Always write code that you think best
-represents these instructions. Just because the code is already there doesn't
-mean it's the best source of truth for how future code should be written.
+When writing new code, preserve local whitespace and naming conventions,
+but evaluate other patterns against these instructions rather than copying
+them automatically.
+
+This does not authorise incidental cleanup. Leave existing code and comments
+unchanged unless the requested change requires an update. Preserve explanations
+that remain valid, especially the reasons behind the code. If an update is
+needed, make the smallest change that keeps the explanation accurate.
 
 ### Break Up Blocks Of Code
 
