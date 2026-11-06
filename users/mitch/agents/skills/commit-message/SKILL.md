@@ -42,8 +42,9 @@ is needed and what value it's bringing.
 For fixes, refactors, and clean-ups explain the change in this order:
 
 1. Describe the problem and its impact in past tense. Lead with what
-   users/operators/developers experienced when viewing the system as a black
-   box.
+   users/operators/developers experienced when viewing the
+   system/application/script as a black box. Refer to entities involved by their
+   name for clarity.
 2. Explain the underlying cause in past tense. Include enough technical detail
    to connect the cause to the impact. Lead into this explanation with a joining
    phrase like "This was caused by ..." or "Such failures were the result of..."
@@ -67,3 +68,8 @@ any limits of the evidence.
 
 In the absence of evidence, refer to best practices, known paradigms, and
 design principles as justification.
+
+## What To Exclude
+
+- Test results, lint results, or anything else that typically comes from a CI/CD
+  workflow.
