@@ -50,9 +50,11 @@ For fixes, refactors, and clean-ups explain the change in this order:
    phrase like "This was caused by ..." or "Such failures were the result of..."
    or similar.
 3. Describe the fix, resulting behaviour, and benefits in present tense. Lead
-   into this description with a joining phrase like "To address this, the job
-   now reads the password through standard input..." or "The chosen solution was
-   to..." or similar.
+   into this description with a joining phrase like "To address this..." or "The
+   chosen solution is to..." or similar. Choose joining phrases that express
+   the specific cause or purpose. Vary their wording across a commit series.
+   Treat the examples as illustrations of structure, rather than phrases to
+   repeat.
 
 Keep the explanation proportional to the change. Separating into paragraphs is
 not a requirement; if all of those points fit neatly into one paragraph, do so.
@@ -72,5 +74,5 @@ design principles as justification.
 
 ## What To Exclude
 
-- Test results, lint results, or anything else that typically comes from a CI/CD
-  workflow.
+- Test results, verification steps, lint results; leave that for the CI
+  pipeline to determine.
