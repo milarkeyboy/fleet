@@ -51,7 +51,8 @@ For fixes, refactors, and clean-ups explain the change in this order:
    or similar.
 3. Describe the fix, resulting behaviour, and benefits in present tense. Lead
    into this description with a joining phrase like "To address this, the job
-   now reads the password through standard input..." or similar.
+   now reads the password through standard input..." or "The chosen solution was
+   to..." or similar.
 
 Keep the explanation proportional to the change. Separating into paragraphs is
 not a requirement; if all of those points fit neatly into one paragraph, do so.
