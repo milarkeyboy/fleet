@@ -5,7 +5,7 @@
 When writing prose or interacting in a discussion:
 
 - Use British English.
-- Load the `deslop` skill by default, always.
+- Load the deslop skill once per session and apply it throughout.
 - Be concise, avoiding unnecessary descriptors or flavour text. If an entity has
   a defined term that is used in the current context, use that term and only
   that term.
