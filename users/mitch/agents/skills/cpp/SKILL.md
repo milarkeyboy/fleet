@@ -62,3 +62,9 @@ Group and order includes like the following:
 // Then standard library to finish
 #include <vector>
 ```
+
+## Member Initialisation
+
+Prefer to initialise class data members in the initialisation list of the
+constructor, especially when the constructor definition is in a dedicated source
+file. Doing so minimises recompilation of dependents.
