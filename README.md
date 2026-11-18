@@ -78,47 +78,43 @@ dependencies. To update the coding agent, for example:
 nix flake update pi
 ```
 
-<!-- TODO: Rewrite this, as it was AI generated. -->
-## XLN Online Installer under Wine
+## Wine on DAW machines
 
-`modules/daw.nix` provides `wine-xln`. After rebuilding the system, run the
-Windows installer with:
+Both `wine` and yabridge use Wine Staging with DXVK for Direct3D 10/11.
+`modules/daw.nix` passes the yabridge flake’s Wine build to `modules/wine.nix`.
+On first use the wrapper links DXVK’s `dxgi`, `d3d11` and `d3d10core` DLLs into the selected
+prefix (`WINEPREFIX`, normally `~/.wine`). This replaces existing copies of
+those DLLs. Back up any custom versions before using the prefix. DXVK needs
+a working Vulkan driver.
+
+To use Wine’s built-in renderer for one program, or for plugins in one REAPER
+session, launch it with:
 
 ```sh
-wine-xln "$HOME/Downloads/XLN Online Installer.exe"
+WINEDLLOVERRIDES='dxgi,d3d11,d3d10core=b' wine program.exe
+WINEDLLOVERRIDES='dxgi,d3d11,d3d10core=b' reaper
 ```
 
-For subsequent launches:
+### XLN Online Installer
+
+Run the original download and let it restart itself:
 
 ```sh
-wine-xln "$HOME/.wine/drive_c/Program Files/XLN Audio/XLN Online Installer/XLN Online Installer.exe"
+wine "$HOME/Downloads/XLN Online Installer.exe"
 ```
 
-The launcher uses the same Wine build as yabridge and defaults to `~/.wine`;
-`WINEPREFIX` can select another 64-bit prefix. It initialises/updates the prefix
-and replaces its three 64-bit `dxgi`, `d3d11`, and `d3d10core` DLLs with DXVK on
-each launch. Existing native versions of those DLLs are overwritten. DLL
-selection is set through the launch environment, inherited by XLN's child
-processes, rather than global registry overrides. DXVK logs go in the prefix.
-Close XLN before relaunching through the wrapper.
+After installation, start it with:
 
-### Why DXVK is needed
+```sh
+wine 'C:\Program Files\XLN Audio\XLN Online Installer\XLN Online Installer.exe'
+```
 
-Tested with Wine Staging 11.8 and DXVK 2.7.1: the downloaded installer 4.0.6
-updates to 5.0.0, then the new process hangs without showing a window. The
-updated executable uses JUCE 8.0.13. Wine's
-[`IDXGIOutput::WaitForVBlank`](https://github.com/wine-mirror/wine/blob/wine-11.8/dlls/dxgi/output.c)
-returns `E_NOTIMPL`. JUCE's
-[`VBlankThread`](https://github.com/juce-framework/JUCE/blob/8.0.13/modules/juce_gui_basics/native/juce_VBlank_windows.cpp)
-retries on failure without checking its exit flag, while its destructor waits
-for the thread to finish. Debugger stacks matched that loop and wait.
-
-DXVK implements the call. With its DLLs selected, the original installer
-successfully updated, restarted, and displayed the login screen. Authentication
-and product installation have not yet been verified. Disabling `d3d11` is not a
-workaround: the updated executable imports it directly and cannot load without
-it. Use the original download rather than manually launching the temporary
-`updateBinary` executable, which expects XLN's update context and arguments.
+XLN 4.0.6 updates to 5.0.0, which uses JUCE 8.0.13. Wine Staging 11.8 returns
+`E_NOTIMPL` for [`WaitForVBlank`](https://github.com/wine-mirror/wine/blob/wine-11.8/dlls/dxgi/output.c).
+[JUCE’s graphics thread](https://github.com/juce-framework/JUCE/blob/8.0.13/modules/juce_gui_basics/native/juce_VBlank_windows.cpp)
+keeps retrying that call without checking whether it should exit. The installer
+then hangs waiting for the thread, before it can show its window. DXVK 2.7.1
+implements the call; the updated installer reaches the login screen.
 
 ## TODO
 

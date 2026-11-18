@@ -11,9 +11,8 @@
 #   Most of the contents of that flake could be pasted inline here to avoid
 #   external dependency, but it works for now so we can leave it. The RT kernel
 #   may also be overkill, possibly check out undoing that later.
-# - yabridge is used to run Windows plugins under wine. Have to use
-#   `yabridge add ...` and `yabridgectl sync` to add new plugin dirs and
-#   syncing new DLLs respectively.
+# - yabridge runs Windows plugins. Register their directories with
+#   `yabridgectl add` and run `yabridgectl sync` after installing plugins.
 #
 # "Why not set powerManagement.cpuFreqGovernor to performance?" - Because
 # it doesn't work. The powersave governor appears to work fine with an RT
@@ -23,40 +22,13 @@ let
   system = pkgs.stdenv.hostPlatform.system;
   neuralAmpModeler = pkgsUnstable.neural-amp-modeler-lv2;
   yabridgePkgs = inputs.yabridge-flake.packages.${system};
-  yabridgeWine =
-    inputs.yabridge-flake.inputs.nixpkgs.legacyPackages.${system}.wineWow64Packages.staging;
+  wineWithDxvk = pkgs.callPackage ./wine.nix {
+    wine = inputs.yabridge-flake.inputs.nixpkgs.legacyPackages.${system}.wineWow64Packages.staging;
+  };
 
-  wineXln = pkgs.writeShellApplication {
-    name = "wine-xln";
-    runtimeInputs = [
-      pkgs.coreutils
-      yabridgeWine
-    ];
-    text = ''
-      if (( $# == 0 )); then
-        echo 'Usage: wine-xln "path/to/XLN Online Installer.exe" [arguments...]' >&2
-        exit 1
-      fi
-
-      export WINEPREFIX="''${WINEPREFIX:-$HOME/.wine}"
-
-      # Let Wine initialise or upgrade the prefix before supplying native DLLs.
-      wineboot --init
-
-      # JUCE 8's VBlank thread hangs on Wine's unimplemented WaitForVBlank.
-      # Supply DXVK in system32 so XLN's downloaded and installed executables
-      # can also find it. Only the 64-bit installer needs these DLLs.
-      for dll in dxgi d3d11 d3d10core; do
-        cp --remove-destination "${pkgs.dxvk.bin}/x64/$dll.dll" \
-          "$WINEPREFIX/drive_c/windows/system32/$dll.dll"
-      done
-
-      # Child processes inherit the override across XLN's self-update/restart.
-      # Do not change the prefix's registry overrides for other applications.
-      export WINEDLLOVERRIDES='dxgi,d3d11,d3d10core=n'
-      export DXVK_LOG_PATH="$WINEPREFIX"
-      exec wine "$@"
-    '';
+  # The host embeds its Wine path at build time rather than searching PATH.
+  yabridge = yabridgePkgs.yabridge.override {
+    wineWow64Packages.staging = wineWithDxvk;
   };
 
   applyReaperSettings = pkgs.writeShellApplication {
@@ -108,6 +80,9 @@ let
   };
 in
 {
+  # DXVK needs the host's Vulkan driver.
+  hardware.graphics.enable = true;
+
   # Apply mutable Reaper settings before the user's normal session starts.
   # Run `apply-reaper-settings` manually after closing Reaper to reapply them
   # without logging out.
@@ -155,9 +130,8 @@ in
     neuralAmpModeler
 
     # Bridging Windows plugins
-    yabridgePkgs.yabridge
+    wineWithDxvk
+    yabridge
     yabridgePkgs.yabridgectl
-    yabridgeWine
-    wineXln
   ];
 }
