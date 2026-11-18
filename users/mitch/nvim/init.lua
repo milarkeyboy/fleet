@@ -15,7 +15,8 @@ local prose_filetypes = { "markdown", "gitcommit" }
 vim.api.nvim_create_autocmd("FileType", {
   pattern = "*",
   callback = function(event)
-    vim.opt_local.textwidth = 80
+    -- Treat git commits separately to follow de facto standards.
+    vim.opt_local.textwidth = event.match == "gitcommit" and 72 or 80
     if vim.tbl_contains(prose_filetypes, event.match) then
       vim.opt_local.formatoptions:append("t")
     else
