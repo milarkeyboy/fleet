@@ -5,7 +5,7 @@ description: >
     in no extra context files through normal discovery. As a result, it is
     recommended that you follow this up with code review to catch issues it
     leaves behind.
-model: openai-codex/gpt-6.1-sol
+model: openai-codex/gpt-6.2-sol
 thinkingLevel: low
 tools: [read, grep, find, ls, bash, edit, write]
 context-file-discovery: false
