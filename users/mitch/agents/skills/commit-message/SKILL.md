@@ -66,11 +66,11 @@ improvements.
 
 Where possible, refer to evidence that supports the existence of the defect and
 its impact. Distinguish observed impact from possible consequences: an error
-message alone does not establish functional failure or lost performance. State
-any limits of the evidence.
+message alone does not establish functional failure or lost performance. Try to
+describe the practical benefit, and state any limits of the evidence.
 
-In the absence of evidence, refer to best practices, known paradigms, and
-design principles as justification.
+In the absence of evidence, ask for input using the questionnaire extension when
+the rationale is unknown.
 
 ## What To Exclude
 
