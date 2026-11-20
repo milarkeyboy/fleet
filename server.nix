@@ -6,6 +6,7 @@
     ./modules/base.nix
     ./modules/server.nix
     ./server/pi-hole.nix
+    ./server/tv.nix
 
     # Not sure if this is needed for the server, but it'll help with developing
     # a configuration.
