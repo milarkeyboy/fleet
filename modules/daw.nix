@@ -1,6 +1,5 @@
 {
   pkgs,
-  pkgsUnstable,
   inputs,
   ...
 }:
@@ -20,7 +19,28 @@
 
 let
   system = pkgs.stdenv.hostPlatform.system;
-  neuralAmpModeler = pkgsUnstable.neural-amp-modeler-lv2;
+
+  # The stable package for this plugin is too old, and the unstable one uses a
+  # glibc version that's too new for the stable Reaper package to load. So, we
+  # grab the upstream binary.
+  neuralAmpModeler = pkgs.stdenvNoCC.mkDerivation (finalAttrs: {
+    pname = "neural-amp-modeler-lv2-bin";
+    version = "0.2.3";
+    src = pkgs.fetchurl {
+      url = "https://github.com/mikeoliphant/neural-amp-modeler-lv2/releases/download/v${finalAttrs.version}/neural_amp_modeler_lv2_linux_x64.tgz";
+      hash = "sha256-uGbUT1Nbdw9CP5nRCDwD3br7B+Y+1jnRHn8Qx9/7L14=";
+    };
+
+    dontUnpack = true;
+    dontFixup = true;
+    installPhase = ''
+      runHook preInstall
+      mkdir -p "$out/lib/lv2"
+      tar -xzf "$src" -C "$out/lib/lv2"
+      runHook postInstall
+    '';
+  });
+
   yabridgePkgs = inputs.yabridge-flake.packages.${system};
   wineWithDxvk = pkgs.callPackage ./wine.nix {
     wine = inputs.yabridge-flake.inputs.nixpkgs.legacyPackages.${system}.wineWow64Packages.staging;
