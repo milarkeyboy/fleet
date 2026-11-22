@@ -271,11 +271,11 @@
         "nixpkgs-x86_64-darwin": "nixpkgs-x86_64-darwin"
       },
       "locked": {
-        "lastModified": 1795109521,
-        "narHash": "sha256-kDgz7uzWqCK7oLtc4soJfgc2Glt/RDf1KU4Oi7tyX4g=",
+        "lastModified": 1795194179,
+        "narHash": "sha256-Tnu0JvfDJ3mpgkoHcjw9Qr2kCqNIJo0tKZGWnUOTOHg=",
         "owner": "lukasl-dev",
         "repo": "pi.nix",
-        "rev": "456172c58f31a1c38243c98b37afdc57a83dffff",
+        "rev": "64b9daa725251ca2242480bb5579ab57b617288b",
         "type": "github"
       },
       "original": {
