@@ -17,6 +17,14 @@
 
   networking.hostName = "desktop";
 
+  # Allow Sunshine streaming from the home LAN. Keep web administration local.
+  networking.firewall.extraCommands = ''
+    iptables -w -A nixos-fw -s 192.168.1.0/24 \
+      -p tcp -m multiport --dports 47984,47989,48010 -j nixos-fw-accept
+    iptables -w -A nixos-fw -s 192.168.1.0/24 \
+      -p udp -m multiport --dports 47998,47999,48000,48002,48010 -j nixos-fw-accept
+  '';
+
   # RX 9070: use the kernel's amdgpu driver with Mesa's RadeonSI/RADV drivers.
   # modules/gaming.nix supplies Mesa for both native and 32-bit games.
   services.xserver.videoDrivers = [ "amdgpu" ];

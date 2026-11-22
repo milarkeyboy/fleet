@@ -1,4 +1,4 @@
-{ lib, pkgs, ... }:
+{ pkgs, ... }:
 
 {
   # Steam.
@@ -23,6 +23,9 @@
   # Enable OpenGL, Vulkan, etc.
   hardware.graphics.enable = true;
   hardware.graphics.enable32Bit = true;
+
+  # Stream the active graphical session to Moonlight clients.
+  services.sunshine.enable = true;
 
   # Game mode for optimisation.
   programs.gamemode.enable = true;

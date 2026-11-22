@@ -72,6 +72,13 @@
               };
             }
             {
+              label = "Moonlight";
+              action = {
+                name = "Execute";
+                command = "${pkgs.moonlight-qt}/bin/moonlight";
+              };
+            }
+            {
               label = "Audio";
               action = {
                 name = "Execute";

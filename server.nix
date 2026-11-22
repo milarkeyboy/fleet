@@ -5,6 +5,7 @@
     ./hardware-configurations/server.nix
     ./modules/base.nix
     ./modules/server.nix
+    ./modules/game-streaming.nix
     ./server/pi-hole.nix
     ./server/tv.nix
 
