@@ -11,6 +11,12 @@ Always aim to use the latest language and standard library features available
 in a given workspace. Just because something is the "tried and true" way does
 not mean it is necessarily the most elegant solution.
 
+## Enums
+
+- Prefer the use of enum classes.
+- When performing actions on a enum value, use a `switch` block instead of `if`
+  statements.
+
 ## GoogleTest/GoogleMock
 
 Make sure to set mock expectations before triggering expectations, to avoid
