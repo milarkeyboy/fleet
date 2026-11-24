@@ -114,6 +114,9 @@
     settings.global = {
       zeroconf_port = 12345;
       device_name = "Living Room";
+
+      # The system service cannot access the TV session's D-Bus.
+      use_mpris = false;
     };
   };
   networking.firewall = {
