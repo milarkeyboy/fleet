@@ -106,19 +106,22 @@
       Restart = "on-failure";
       RestartSec = 5;
     };
-  };
 
-  # Act as a Spotify device
-  services.spotifyd = {
-    enable = true;
-    settings.global = {
-      zeroconf_port = 12345;
-      device_name = "Living Room";
+    # Run Spotifyd as tv so ALSA can reach the user's PipeWire socket.
+    services.spotifyd = {
+      enable = true;
+      settings.global = {
+        zeroconf_port = 12345;
+        device_name = "Living Room";
 
-      # The system service cannot access the TV session's D-Bus.
-      use_mpris = false;
+        # Spotify Connect does not need MPRIS. Disable it so a session D-Bus
+        # failure does not stop Spotifyd.
+        use_mpris = false;
+      };
     };
   };
+
+  # Open ports for spotifyd
   networking.firewall = {
     allowedUDPPorts = [ 5353 ];
     allowedTCPPorts = [ 12345 ];
