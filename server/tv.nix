@@ -107,4 +107,17 @@
       RestartSec = 5;
     };
   };
+
+  # Act as a Spotify device
+  services.spotifyd = {
+    enable = true;
+    settings.global = {
+      zeroconf_port = 12345;
+      device_name = "Living Room";
+    };
+  };
+  networking.firewall = {
+    allowedUDPPorts = [ 5353 ];
+    allowedTCPPorts = [ 12345 ];
+  };
 }

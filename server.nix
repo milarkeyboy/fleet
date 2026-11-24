@@ -9,10 +9,6 @@
     ./server/pi-hole.nix
     ./server/tv.nix
 
-    # Not sure if this is needed for the server, but it'll help with developing
-    # a configuration.
-    ./modules/coding.nix
-
     ./users/mitch.nix
   ];
 
