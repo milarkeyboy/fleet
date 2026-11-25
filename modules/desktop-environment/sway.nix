@@ -2,6 +2,8 @@
   config,
   lib,
   pkgs,
+  monospaceFont,
+  monospaceFontSize,
   ...
 }:
 
@@ -125,7 +127,9 @@ in
   };
 
   environment.etc = {
-    "sway/config".source = ./sway/config;
+    "sway/config".text =
+      builtins.replaceStrings [ "@monospaceFont@" ] [ monospaceFont.family ]
+        (builtins.readFile ./sway/config);
     "xdg/gtk-3.0/settings.ini".text = ''
       [Settings]
       gtk-cursor-theme-name=Adwaita
@@ -138,13 +142,13 @@ in
     '';
     "xdg/foot/foot.ini".text = ''
       [main]
-      font=JetBrainsMono Nerd Font Mono:size=11
+      font=${monospaceFont.family}:size=${toString monospaceFontSize}
       dpi-aware=no
     '';
     "xdg/rofi/config.rasi".text = ''
       configuration {
         modi: "drun,run";
-        font: "JetBrainsMono Nerd Font Mono 11";
+        font: "${monospaceFont.family} ${toString monospaceFontSize}";
         show-icons: true;
         terminal: "foot";
         drun-display-format: "{name}";
@@ -160,7 +164,7 @@ in
       inode/directory=pcmanfm-qt.desktop;
     '';
     "xdg/mako/config".text = ''
-      font=JetBrainsMono Nerd Font Mono 11
+      font=${monospaceFont.family} ${toString monospaceFontSize}
       background-color=#20242b
       text-color=#eeeeee
       border-color=#356859
@@ -194,7 +198,9 @@ in
         html_escape = false;
       };
     };
-    "xdg/waybar/style.css".source = ./sway/waybar.css;
+    "xdg/waybar/style.css".text =
+      builtins.replaceStrings [ "@monospaceFont@" ] [ monospaceFont.family ]
+        (builtins.readFile ./sway/waybar.css);
     "xdg/waybar/config".text = builtins.toJSON {
       layer = "top";
       position = "top";

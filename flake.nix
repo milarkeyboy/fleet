@@ -37,6 +37,12 @@
       system = "x86_64-linux";
       pkgsUnstable = inputs.nixpkgs-unstable.legacyPackages.${system};
 
+      monospaceFont = {
+        family = "JetBrainsMono Nerd Font Mono";
+        package = pkgs: pkgs.nerd-fonts.jetbrains-mono;
+      };
+      monospaceFontSize = 10;
+
       # Builds one NixOS system from a top-level host selection file. Each host
       # file chooses its hardware module, users, and shared modules.
       mkHost =
@@ -44,7 +50,12 @@
         nixpkgs.lib.nixosSystem {
           inherit system;
           specialArgs = {
-            inherit inputs pkgsUnstable;
+            inherit
+              inputs
+              pkgsUnstable
+              monospaceFont
+              monospaceFontSize
+              ;
           };
           modules = [
             (./. + "/${hostname}.nix")

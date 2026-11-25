@@ -2,6 +2,8 @@
   config,
   lib,
   pkgs,
+  monospaceFont,
+  monospaceFontSize,
   ...
 }:
 
@@ -120,7 +122,7 @@ in
   programs.foot = {
     enable = true;
     settings.main = {
-      font = "JetBrainsMono Nerd Font Mono:size=11";
+      font = "${monospaceFont.family}:size=${toString monospaceFontSize}";
       dpi-aware = "no";
     };
 
@@ -170,7 +172,7 @@ in
     "xdg/rofi/config.rasi".text = ''
       configuration {
         modi: "drun,run";
-        font: "JetBrainsMono Nerd Font Mono 11";
+        font: "${monospaceFont.family} ${toString monospaceFontSize}";
         show-icons: true;
         terminal: "foot";
         drun-display-format: "{name}";
@@ -205,7 +207,7 @@ in
       @import url("${pkgs.swaynotificationcenter}/etc/xdg/swaync/style.css");
 
       * {
-        font-family: "JetBrainsMono Nerd Font Mono";
+        font-family: "${monospaceFont.family}";
       }
 
       :root {
@@ -267,7 +269,9 @@ in
           on-resume = ${config.programs.hyprland.package}/bin/hyprctl dispatch dpms on
       }
     '';
-    "xdg/waybar/style.css".source = ./hyprland/waybar.css;
+    "xdg/waybar/style.css".text =
+      builtins.replaceStrings [ "@monospaceFont@" ] [ monospaceFont.family ]
+        (builtins.readFile ./hyprland/waybar.css);
     "xdg/waybar/config".text = builtins.toJSON {
       layer = "top";
       position = "top";

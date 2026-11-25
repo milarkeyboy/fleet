@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  monospaceFont,
   ...
 }:
 
@@ -52,12 +53,8 @@ in
 
   # Nerdfont for TUI goodness.
   fonts = {
-    packages = with pkgs; [
-      nerd-fonts.jetbrains-mono
-    ];
-    fontconfig.defaultFonts.monospace = [
-      "JetBrainsMono Nerd Font Mono"
-    ];
+    packages = [ (monospaceFont.package pkgs) ];
+    fontconfig.defaultFonts.monospace = [ monospaceFont.family ];
   };
 
   # Universal system tools should be useful on every machine.
